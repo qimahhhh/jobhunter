@@ -526,6 +526,7 @@ def draft_base_resume(
         ],
         unresolved_evidence=result.unresolved,
         unverified_bullets=result.unverified_bullets,
+        unverified_fields=result.unverified_fields,
         degraded=result.degraded,
         notes=result.notes,
     )

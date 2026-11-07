@@ -126,6 +126,7 @@ class ResumeDraftResponse(BaseModel):
     cited_chunks: list[CitedChunk]
     unresolved_evidence: list[str]
     unverified_bullets: int
+    unverified_fields: int = 0
     degraded: bool
     notes: list[str]
 

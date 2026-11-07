@@ -118,6 +118,76 @@ class BaseResumeTest(unittest.TestCase):
         self.assertTrue(any("45%" in note for note in result.notes))
         self.assertEqual(result.content.experiences[0].bullets[0].sources, ["c003"])
 
+    def test_number_in_a_field_without_sources_is_reported(self) -> None:
+        client = FakeClient(
+            [
+                _draft(
+                    [
+                        {
+                            "heading": "字节跳动 | 后端开发实习 | 2024",
+                            "bullets": [
+                                {
+                                    "text": "负责推荐接口优化，QPS 提升 40%",
+                                    "sources": ["c003"],
+                                }
+                            ],
+                        }
+                    ],
+                    headline="5 年大厂后端经验",
+                )
+            ]
+        )
+
+        result = draft_resume(self.blocks, client)
+
+        notes = "\n".join(result.notes)
+        self.assertIn("headline", notes)
+        self.assertIn("经历标题", notes)
+        self.assertIn("2024", notes)
+        # The line is still shown; what changes is that the number is not silent.
+        self.assertEqual(result.content.headline, "5 年大厂后端经验")
+        self.assertEqual(
+            result.content.experiences[0].heading, "字节跳动 | 后端开发实习 | 2024"
+        )
+
+    def test_number_that_exists_in_the_material_is_not_reported(self) -> None:
+        client = FakeClient([_draft([], headline="后端开发实习 · QPS 提升 40%")])
+
+        result = draft_resume(self.blocks, client)
+
+        self.assertEqual(result.notes, [])
+
+    def test_invented_skill_is_dropped(self) -> None:
+        client = FakeClient([_draft([], skills=["Python", "Rust"])])
+
+        result = draft_resume(self.blocks, client)
+
+        # Nothing in the material mentions Rust, so the line is not the user's.
+        self.assertEqual(result.content.skills, ["Python"])
+        self.assertEqual(result.unverified_fields, 1)
+        self.assertTrue(any("Rust" in note for note in result.notes))
+
+    def test_invented_education_is_dropped(self) -> None:
+        client = FakeClient(
+            [_draft([], education=["清华大学 计算机科学与技术 2018-2022"])]
+        )
+
+        result = draft_resume(self.blocks, client)
+
+        self.assertEqual(result.content.education, [])
+        self.assertEqual(result.unverified_fields, 1)
+        self.assertTrue(any("清华大学" in note for note in result.notes))
+
+    def test_partially_supported_skill_is_kept_and_reported(self) -> None:
+        client = FakeClient([_draft([], skills=["Python/PyTorch"])])
+
+        result = draft_resume(self.blocks, client)
+
+        # Half of the line is real; dropping it would delete the real half too.
+        self.assertEqual(result.content.skills, ["Python/PyTorch"])
+        self.assertEqual(result.unverified_fields, 0)
+        self.assertTrue(any("PyTorch" in note for note in result.notes))
+
     def test_broken_reply_is_retried_once(self) -> None:
         client = FakeClient(
             [
