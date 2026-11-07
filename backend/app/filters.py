@@ -100,15 +100,29 @@ def _check_salary(job: Job, requirements: UserRequirements) -> tuple[bool | None
     if job.salary_period is None:
         return None, "岗位薪资周期未标注，无法与期望值比较"
 
-    ceiling = to_monthly(
-        job.salary_max if job.salary_max is not None else job.salary_min,
-        job.salary_period,
-    )
+    floor = to_monthly(requirements.salary_min, requirements.salary_period)
+    if floor is None:
+        return True, ""
+
+    if job.salary_max is None:
+        # Only a floor is published ("5000 起"), so the real ceiling is unknown.
+        # Compare the announced floor when it already clears the expectation,
+        # otherwise report an unknown instead of rejecting the posting.
+        announced_floor = to_monthly(job.salary_min, job.salary_period)
+        if announced_floor is None:
+            return None, "岗位薪资信息缺失"
+        if announced_floor >= floor:
+            return True, ""
+        return (
+            None,
+            f"岗位仅标注月薪下限约 {announced_floor}，上限未标注，"
+            f"无法确认是否达到期望下限 {floor}",
+        )
+
+    ceiling = to_monthly(job.salary_max, job.salary_period)
     if ceiling is None:
         return None, "岗位薪资信息缺失"
-
-    floor = to_monthly(requirements.salary_min, requirements.salary_period)
-    if floor is not None and ceiling < floor:
+    if ceiling < floor:
         return False, f"岗位月薪上限约 {ceiling}，低于期望下限 {floor}"
     return True, ""
 

@@ -94,6 +94,27 @@ class HardFilterTest(unittest.TestCase):
         self.assertTrue(outcome.passed)
         self.assertIn("周期", outcome.unknowns[0])
 
+    def test_announced_floor_below_expectation_is_unknown_not_rejected(self) -> None:
+        outcome = hard_filter(
+            _job(salary_min=5000, salary_max=None, salary_period="month"),
+            _requirements(salary_min=10000),
+        )
+
+        self.assertTrue(outcome.passed)
+        self.assertEqual(outcome.rejections, [])
+        self.assertIn("5000", outcome.unknowns[0])
+        self.assertIn("上限", outcome.unknowns[0])
+
+    def test_announced_floor_clearing_expectation_passes_without_unknowns(self) -> None:
+        outcome = hard_filter(
+            _job(salary_min=12000, salary_max=None, salary_period="month"),
+            _requirements(salary_min=10000),
+        )
+
+        self.assertTrue(outcome.passed)
+        self.assertEqual(outcome.rejections, [])
+        self.assertEqual(outcome.unknowns, [])
+
     def test_remote_job_matches_any_city(self) -> None:
         outcome = hard_filter(_job(location="远程"), _requirements(locations=["北京"]))
 
