@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 
 from backend.app.chunking import Block
-from backend.app.extractor import extract_profile, extract_profile_from_blocks
+from backend.app.extractor import (
+    SYSTEM_PROMPT,
+    extract_profile,
+    extract_profile_from_blocks,
+)
 from backend.app.llm import LLMError
 
 RESUME = """张三
@@ -71,6 +75,27 @@ class ExtractionTest(unittest.TestCase):
         self.assertIn("[chunk:c001 | source:free_text", client.calls[0])
         self.assertIn("字节跳动", client.calls[0])
 
+    def test_guidance_fields_are_parsed_and_coerced(self) -> None:
+        client = FakeClient(
+            [
+                {
+                    "summary": "学生",
+                    "skills": [],
+                    "experiences": [],
+                    "recommended_roles": "AI 应用开发实习生",
+                    "missing_information": ["期望城市", "可实习时长"],
+                    "evidence": ["c001"],
+                }
+            ]
+        )
+
+        result = extract_profile(RESUME, client)
+
+        self.assertEqual(result.recommended_roles, ["AI 应用开发实习生"])
+        self.assertEqual(result.missing_information, ["期望城市", "可实习时长"])
+        self.assertIn("recommended_roles", SYSTEM_PROMPT)
+        self.assertIn("missing_information", SYSTEM_PROMPT)
+
     def test_invented_chunk_id_is_reported_and_dropped(self) -> None:
         client = FakeClient(
             [
@@ -116,6 +141,48 @@ class ExtractionTest(unittest.TestCase):
 
         self.assertEqual(result.profile.skills, ["Python"])
         self.assertEqual(result.evidence, ["c001"])
+
+    def test_inferred_fields_are_carried_through_and_coerced(self) -> None:
+        client = FakeClient(
+            [
+                {
+                    "summary": "学生",
+                    "skills": [],
+                    "experiences": [],
+                    "recommended_roles": ["AI 应用开发实习生"],
+                    "missing_information": "期望城市",
+                    "evidence": ["c001"],
+                }
+            ]
+        )
+
+        result = extract_profile(RESUME, client)
+
+        self.assertEqual(result.recommended_roles, ["AI 应用开发实习生"])
+        self.assertEqual(result.missing_information, ["期望城市"])
+        self.assertFalse(result.degraded)
+
+    def test_suggestions_do_not_make_an_uncited_draft_confident(self) -> None:
+        client = FakeClient(
+            [
+                {
+                    "summary": "学生",
+                    "skills": [],
+                    "experiences": [],
+                    "recommended_roles": ["算法工程师"],
+                    "missing_information": ["期望城市"],
+                    "evidence": [],
+                }
+            ]
+        )
+
+        result = extract_profile(RESUME, client)
+
+        # Suggestions are inference, not claims: they must never turn a draft
+        # with no valid citation into something that looks verified.
+        self.assertEqual(result.recommended_roles, ["算法工程师"])
+        self.assertTrue(result.degraded)
+        self.assertEqual(result.evidence, [])
 
     def test_broken_reply_is_retried_once(self) -> None:
         client = FakeClient(

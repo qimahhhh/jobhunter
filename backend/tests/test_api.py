@@ -346,6 +346,50 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(job["collected_at"])
         self.assertIsNone(job["last_verified_at"])
 
+    async def test_confirmed_extraction_is_saved_as_the_profile(self) -> None:
+        user_response = await _request(
+            "POST",
+            "/api/v1/users",
+            {"email": "confirm@example.com", "display_name": "Confirm"},
+        )
+        confirm_response = await _request(
+            "POST",
+            "/api/v1/profiles/extract/confirm",
+            {
+                "user_id": user_response.json()["id"],
+                "requirements": {"desired_role": "AI 应用开发实习"},
+                "profile": {
+                    "summary": "学生",
+                    "skills": ["Python"],
+                    "experiences": ["字节跳动 后端开发实习"],
+                },
+                "recommended_roles": ["AI 应用开发实习生"],
+            },
+        )
+
+        self.assertEqual(confirm_response.status, 201)
+        saved = confirm_response.json()
+        self.assertEqual(saved["capabilities"]["summary"], "学生")
+        self.assertEqual(saved["capabilities"]["target_roles"], ["AI 应用开发实习生"])
+
+        fetched = await _request("GET", f"/api/v1/profiles/{saved['id']}")
+        self.assertEqual(fetched.status, 200)
+        self.assertEqual(fetched.json()["capabilities"]["skills"], ["Python"])
+
+    async def test_confirming_for_a_missing_user_returns_404(self) -> None:
+        confirm_response = await _request(
+            "POST",
+            "/api/v1/profiles/extract/confirm",
+            {
+                "user_id": "missing-user",
+                "requirements": {"desired_role": "AI 应用开发实习"},
+                "profile": {"summary": "学生", "skills": [], "experiences": []},
+            },
+        )
+
+        self.assertEqual(confirm_response.status, 404)
+        self.assertEqual(confirm_response.json()["detail"], "user not found")
+
 
 async def _upload(
     path: str,
@@ -487,6 +531,30 @@ class ExtractionApiTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status, 400)
         self.assertIn("bad pdf", response.json()["detail"])
+
+    async def test_draft_carries_guidance_fields(self) -> None:
+        client = _FakeClient(
+            [
+                {
+                    "summary": "学生",
+                    "skills": [],
+                    "experiences": [],
+                    "recommended_roles": ["AI 应用开发实习生"],
+                    "missing_information": ["期望城市"],
+                    "evidence": ["c001"],
+                }
+            ]
+        )
+        with mock.patch("backend.app.routers._client", return_value=client):
+            response = await _request(
+                "POST",
+                "/api/v1/profiles/extract",
+                {"text": "张三\n\n教育背景\n\n北京邮电大学"},
+            )
+
+        body = response.json()
+        self.assertEqual(body["recommended_roles"], ["AI 应用开发实习生"])
+        self.assertEqual(body["missing_information"], ["期望城市"])
 
     async def test_text_endpoint_contract_is_unchanged(self) -> None:
         client = _FakeClient(

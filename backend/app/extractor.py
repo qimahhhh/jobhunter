@@ -28,13 +28,16 @@ SYSTEM_PROMPT = """你是简历抽取器。把给定的简历上下文整理成�
 
 规则：
 1. 只使用上下文里出现过的事实。不要补充技能、公司、日期、学校或数字。
-2. 每条结论都要有出处：把上下文里 chunk 表头的 id（例如 c001）填进 evidence。没有有效 chunk id 支撑的结论会被丢弃。
-3. 只返回一个 JSON 对象。不要 markdown 代码块，不要任何解释文字。
-4. 字段形状：
+2. summary、skills、experiences 里的每条结论都要有出处：把上下文里 chunk 表头的 id（例如 c001）填进 evidence。没有有效 chunk id 支撑的结论会被丢弃。
+3. recommended_roles 是从技能和经历推断的可探索岗位方向，missing_information 是简历里缺失、值得向用户补充询问的信息；这两项属于推断和信息缺口，不写进 evidence，推不出来就留空数组。
+4. 只返回一个 JSON 对象。不要 markdown 代码块，不要任何解释文字。
+5. 字段形状：
 {
   "summary": "2-3 句话介绍这位候选人，不要写简历里没有的形容词",
   "skills": ["具体的语言、工具、方法，按简历原文写"],
   "experiences": ["每段实习或项目一条，保留角色、组织和量化结果"],
+  "recommended_roles": ["根据技能和经历推断的岗位方向，例如 AI 应用开发实习生；推不出来就留空"],
+  "missing_information": ["简历里缺失、建议向用户补充询问的信息，例如期望城市、可实习时长；没有就留空"],
   "evidence": ["c001"]
 }"""
 
@@ -62,6 +65,8 @@ class ExtractionResult:
     """
 
     profile: ProfileInput | None
+    recommended_roles: list[str]
+    missing_information: list[str]
     evidence: list[str]
     unresolved: list[str]
     chunk_ids: list[str]
@@ -105,6 +110,8 @@ def extract_profile_from_blocks(
     if not chunks:
         return ExtractionResult(
             profile=None,
+            recommended_roles=[],
+            missing_information=[],
             evidence=[],
             unresolved=[],
             chunk_ids=[],
@@ -128,6 +135,8 @@ def extract_profile_from_blocks(
     if draft is None:
         return ExtractionResult(
             profile=None,
+            recommended_roles=[],
+            missing_information=[],
             evidence=[],
             unresolved=[],
             chunk_ids=chunk_ids,
@@ -156,6 +165,12 @@ def extract_profile_from_blocks(
 
     return ExtractionResult(
         profile=profile,
+        recommended_roles=[
+            role.strip() for role in draft.recommended_roles if role.strip()
+        ],
+        missing_information=[
+            item.strip() for item in draft.missing_information if item.strip()
+        ],
         evidence=evidence,
         unresolved=unresolved,
         chunk_ids=chunk_ids,

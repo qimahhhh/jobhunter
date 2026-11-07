@@ -34,9 +34,18 @@ class ProfileDraft(BaseModel):
     summary: str = ""
     skills: list[str] = Field(default_factory=list)
     experiences: list[str] = Field(default_factory=list)
+    recommended_roles: list[str] = Field(default_factory=list)
+    missing_information: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
 
-    @field_validator("skills", "experiences", "evidence", mode="before")
+    @field_validator(
+        "skills",
+        "experiences",
+        "recommended_roles",
+        "missing_information",
+        "evidence",
+        mode="before",
+    )
     @classmethod
     def _as_list(cls, value: Any) -> Any:
         if value is None:
@@ -53,6 +62,8 @@ class ResumeExtractionRequest(BaseModel):
 
 class ResumeExtractionResponse(BaseModel):
     profile: ProfileInput | None
+    recommended_roles: list[str]
+    missing_information: list[str]
     evidence: list[str]
     unresolved_evidence: list[str]
     chunk_ids: list[str]

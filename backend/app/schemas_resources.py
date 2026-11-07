@@ -12,6 +12,7 @@ from .schemas import (
     JobInput,
     JobStatus,
     MatchResult,
+    ProfileInput,
     SalaryPeriod,
 )
 
@@ -61,6 +62,20 @@ class ProfileRead(BaseModel):
     capabilities: CapabilityProfile
     created_at: datetime
     updated_at: datetime
+
+
+class ProfileConfirmationRequest(BaseModel):
+    """The human-in-the-loop hand-off: an extraction draft the user reviewed.
+
+    The fields mirror what ``/profiles/extract`` returns so the frontend can
+    post the draft back after edits. ``recommended_roles`` become the profile's
+    ``target_roles``; everything else keeps its meaning.
+    """
+
+    user_id: str
+    requirements: UserRequirements
+    profile: ProfileInput
+    recommended_roles: list[str] = Field(default_factory=list)
 
 
 class ResumeCreate(BaseModel):

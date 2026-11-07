@@ -25,11 +25,13 @@ from .schemas import (
     ResumeExtractionResponse,
 )
 from .schemas_resources import (
+    CapabilityProfile,
     JobCreate,
     JobFitAnalysisRead,
     JobMatchCreate,
     JobMatchRead,
     JobRead,
+    ProfileConfirmationRequest,
     ProfileCreate,
     ProfileRead,
     ResumeCreate,
@@ -163,7 +165,8 @@ def extract_profile_from_resume(data: ResumeExtractionRequest) -> ResumeExtracti
     """Chunk resume text and let the model draft a profile from it.
 
     Nothing is persisted: the draft comes back with the chunk ids it cited so a
-    human (or the frontend) can check it before saving through ``POST /profiles``.
+    human (or the frontend) can check it before confirming through
+    ``POST /profiles/extract/confirm``.
     """
 
     try:
@@ -181,6 +184,8 @@ _MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 def _extraction_response(result: ExtractionResult) -> ResumeExtractionResponse:
     return ResumeExtractionResponse(
         profile=result.profile,
+        recommended_roles=result.recommended_roles,
+        missing_information=result.missing_information,
         evidence=result.evidence,
         unresolved_evidence=result.unresolved,
         chunk_ids=result.chunk_ids,
@@ -224,8 +229,8 @@ async def extract_profile_from_upload(
     picks the parser, so a client uploads with one ``fetch`` and the server
     needs no multipart support. Same contract as ``POST /profiles/extract``:
     nothing is persisted, and the draft comes back with the chunk ids it cited
-    so a human (or the frontend) can check it before saving through
-    ``POST /profiles``.
+    so a human (or the frontend) can check it before confirming through
+    ``POST /profiles/extract/confirm``.
     """
 
     suffix = Path(filename).suffix.lower()
@@ -262,6 +267,37 @@ async def extract_profile_from_upload(
         extract_profile_from_blocks, blocks, client, max_chunk_tokens=max_chunk_tokens
     )
     return _extraction_response(result)
+
+
+@router.post(
+    "/profiles/extract/confirm",
+    response_model=ProfileRead,
+    status_code=201,
+    responses={404: {"description": "the referenced user does not exist"}},
+)
+def confirm_extracted_profile(
+    data: ProfileConfirmationRequest, session: Session = Depends(_session)
+) -> ProfileRead:
+    """Save a reviewed extraction draft as the user's profile.
+
+    This is the human-in-the-loop confirmation node of profile building: the
+    draft that ``/profiles/extract`` returned comes back here after the user
+    checked and edited it, and only then does it become a persisted profile.
+    ``recommended_roles`` are stored as the profile's ``target_roles``.
+    """
+
+    payload = ProfileCreate(
+        user_id=data.user_id,
+        requirements=data.requirements,
+        capabilities=CapabilityProfile(
+            summary=data.profile.summary,
+            skills=data.profile.skills,
+            experiences=data.profile.experiences,
+            target_roles=data.recommended_roles,
+        ),
+    )
+    profile = _or_404(lambda: create_profile(session, payload))
+    return ProfileRead.model_validate(profile)
 
 
 @router.post("/resumes", response_model=ResumeRead, status_code=201)
