@@ -29,10 +29,10 @@ python -m venv .venv
 | `POST /api/v1/job-fit` | 执行完整的岗位适配分析，并持久化成功结果；失败时返回带 `run_log` 的结构化错误。 |
 | `GET /api/v1/job-fit`、`GET /api/v1/job-fit/{request_id}` | 查看分析历史或单次分析。 |
 | `POST /api/v1/users`、`GET /api/v1/users/{user_id}` | 创建和查询用户；重复邮箱返回 `409`。 |
-| `POST /api/v1/profiles`、`GET /api/v1/profiles/{profile_id}` | 创建和查询包含求职要求、能力画像的用户档案。 |
+| `POST /api/v1/profiles`、`GET /api/v1/profiles/{profile_id}` | 创建或更新用户画像（一个用户只有一份，重复提交覆盖既有画像），并支持按 id 查询。 |
 | `POST /api/v1/profiles/extract` | 提交简历纯文本，解析成 chunk 后让模型抽取画像草稿；返回证据引用、岗位方向建议、待补充问题与 degraded 标记，不落库。 |
 | `POST /api/v1/profiles/extract/file` | 上传 PDF/DOCX 简历文件（请求体为文件字节，`filename` 查询参数决定解析器），响应与 `/profiles/extract` 相同。 |
-| `POST /api/v1/profiles/extract/confirm` | 用户校对、修改抽取草稿后提交确认（人工确认节点），保存为用户画像；岗位方向建议存入 `target_roles`，用户不存在返回 `404`。 |
+| `POST /api/v1/profiles/extract/confirm` | 用户校对、修改抽取草稿后提交确认（人工确认节点），写入用户画像（重复确认更新同一份画像）；`recommended_roles` 存为 `suggested_roles`，用户保留或修改后的方向存为 `target_roles`，未修改时 `target_roles_source` 标为 `suggested`；草稿的 `missing_information` 一并落库；用户不存在返回 `404`。 |
 | `POST /api/v1/resumes`、`GET /api/v1/resumes/{resume_id}` | 保存和查询来源类型及内容结构化的简历记录。 |
 | `POST /api/v1/jobs`、`GET /api/v1/jobs`、`GET /api/v1/jobs/{job_id}` | 创建和查询岗位；列表支持 `employment_type` 筛选。 |
 | `POST /api/v1/job-matches`、`GET /api/v1/job-matches/{match_id}` | 创建和查询匹配结果；创建前会按岗位类型、地点、薪资等硬约束过滤。 |

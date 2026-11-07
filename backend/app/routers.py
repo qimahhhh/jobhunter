@@ -147,6 +147,8 @@ def read_user(user_id: str, session: Session = Depends(_session)) -> UserRead:
 
 @router.post("/profiles", response_model=ProfileRead, status_code=201)
 def add_profile(data: ProfileCreate, session: Session = Depends(_session)) -> ProfileRead:
+    """Create the user's profile, or update the one they already have."""
+
     profile = _or_404(lambda: create_profile(session, data))
     return ProfileRead.model_validate(profile)
 
@@ -283,8 +285,20 @@ def confirm_extracted_profile(
     This is the human-in-the-loop confirmation node of profile building: the
     draft that ``/profiles/extract`` returned comes back here after the user
     checked and edited it, and only then does it become a persisted profile.
-    ``recommended_roles`` are stored as the profile's ``target_roles``.
+
+    The two role lists are kept apart. ``recommended_roles`` stay as
+    ``suggested_roles``; ``target_roles`` is what the user left in the form, and
+    when they omit it the suggestions are copied but marked ``suggested``, so a
+    direction nobody agreed to is never displayed as a decision.
     """
+
+    suggestions = [role.strip() for role in data.recommended_roles if role.strip()]
+    if data.target_roles is None:
+        confirmed = list(suggestions)
+        source = "suggested"
+    else:
+        confirmed = [role.strip() for role in data.target_roles if role.strip()]
+        source = "confirmed"
 
     payload = ProfileCreate(
         user_id=data.user_id,
@@ -293,8 +307,13 @@ def confirm_extracted_profile(
             summary=data.profile.summary,
             skills=data.profile.skills,
             experiences=data.profile.experiences,
-            target_roles=data.recommended_roles,
+            target_roles=confirmed,
+            suggested_roles=suggestions,
+            target_roles_source=source,
         ),
+        missing_information=[
+            item.strip() for item in data.missing_information if item.strip()
+        ],
     )
     profile = _or_404(lambda: create_profile(session, payload))
     return ProfileRead.model_validate(profile)

@@ -32,10 +32,14 @@ class UserProfile(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
     )
     requirements: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     capabilities: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    missing_information: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now

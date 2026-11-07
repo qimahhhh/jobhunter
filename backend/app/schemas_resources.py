@@ -17,6 +17,9 @@ from .schemas import (
 )
 
 
+TargetRoleSource = Literal["suggested", "confirmed"]
+
+
 class UserCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     display_name: str = Field(min_length=1, max_length=255)
@@ -41,16 +44,27 @@ class UserRequirements(BaseModel):
 
 
 class CapabilityProfile(BaseModel):
+    """What the user can do, and the direction the profile is used for.
+
+    ``target_roles`` drives the profile; ``suggested_roles`` keeps what the
+    extraction proposed, so the frontend can show "we suggested this" instead
+    of presenting an unconfirmed guess as the user's own decision.
+    ``target_roles_source`` records which of the two the list came from.
+    """
+
     summary: str = Field(min_length=1)
     skills: list[str] = Field(default_factory=list)
     experiences: list[str] = Field(default_factory=list)
     target_roles: list[str] = Field(default_factory=list)
+    suggested_roles: list[str] = Field(default_factory=list)
+    target_roles_source: TargetRoleSource = "confirmed"
 
 
 class ProfileCreate(BaseModel):
     user_id: str
     requirements: UserRequirements
     capabilities: CapabilityProfile
+    missing_information: list[str] = Field(default_factory=list)
 
 
 class ProfileRead(BaseModel):
@@ -60,6 +74,7 @@ class ProfileRead(BaseModel):
     user_id: str
     requirements: UserRequirements
     capabilities: CapabilityProfile
+    missing_information: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -67,15 +82,21 @@ class ProfileRead(BaseModel):
 class ProfileConfirmationRequest(BaseModel):
     """The human-in-the-loop hand-off: an extraction draft the user reviewed.
 
-    The fields mirror what ``/profiles/extract`` returns so the frontend can
-    post the draft back after edits. ``recommended_roles`` become the profile's
-    ``target_roles``; everything else keeps its meaning.
+    ``recommended_roles`` is what the model proposed; ``target_roles`` is what
+    the user left in the form. Omitting ``target_roles`` means "keep the
+    suggestions", which is stored as ``target_roles_source="suggested"`` so an
+    unconfirmed direction is never presented as a decision.
+
+    ``missing_information`` carries the gaps the draft reported, because a
+    prompt that disappears with the response is a prompt the user never reads.
     """
 
     user_id: str
     requirements: UserRequirements
     profile: ProfileInput
     recommended_roles: list[str] = Field(default_factory=list)
+    target_roles: list[str] | None = None
+    missing_information: list[str] = Field(default_factory=list)
 
 
 class ResumeCreate(BaseModel):

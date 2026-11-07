@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -104,14 +105,34 @@ def get_user(session: Session, user_id: str) -> User:
 
 
 def create_profile(session: Session, data: ProfileCreate) -> UserProfile:
+    """Create the user's profile, or update the one they already have.
+
+    A profile is a property of the user rather than a log entry: confirming a
+    corrected draft twice must leave one row, not two profiles that nobody can
+    tell apart. The unique index on ``user_id`` backs this up for concurrent
+    writers; this lookup keeps the ordinary path free of IntegrityError noise.
+    """
+
     get_user(session, data.user_id)
-    profile = UserProfile(
-        id=_id(),
-        user_id=data.user_id,
-        requirements=data.requirements.model_dump(),
-        capabilities=data.capabilities.model_dump(),
+    profile = session.scalar(
+        select(UserProfile).where(UserProfile.user_id == data.user_id)
     )
-    session.add(profile)
+    if profile is None:
+        profile = UserProfile(
+            id=_id(),
+            user_id=data.user_id,
+            requirements=data.requirements.model_dump(),
+            capabilities=data.capabilities.model_dump(),
+            missing_information=list(data.missing_information),
+        )
+        session.add(profile)
+    else:
+        # Re-confirming replaces the whole profile: the draft is the source of
+        # truth the user just reviewed, not a patch to merge into old fields.
+        profile.requirements = data.requirements.model_dump()
+        profile.capabilities = data.capabilities.model_dump()
+        profile.missing_information = list(data.missing_information)
+
     session.commit()
     session.refresh(profile)
     return profile

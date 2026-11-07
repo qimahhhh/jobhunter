@@ -390,6 +390,91 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_response.status, 404)
         self.assertEqual(confirm_response.json()["detail"], "user not found")
 
+    async def _create_user(self, email: str) -> str:
+        response = await _request(
+            "POST",
+            "/api/v1/users",
+            {"email": email, "display_name": "Tester"},
+        )
+        self.assertEqual(response.status, 201)
+        return response.json()["id"]
+
+    async def _confirm_draft(
+        self,
+        user_id: str,
+        summary: str,
+        *,
+        recommended_roles: list[str] | None = None,
+        target_roles: list[str] | None = None,
+        missing_information: list[str] | None = None,
+    ) -> ApiResponse:
+        payload: dict[str, Any] = {
+            "user_id": user_id,
+            "requirements": {"desired_role": "AI 应用开发实习"},
+            "profile": {"summary": summary, "skills": ["Python"], "experiences": []},
+        }
+        if recommended_roles is not None:
+            payload["recommended_roles"] = recommended_roles
+        if target_roles is not None:
+            payload["target_roles"] = target_roles
+        if missing_information is not None:
+            payload["missing_information"] = missing_information
+        return await _request("POST", "/api/v1/profiles/extract/confirm", payload)
+
+    async def test_confirming_twice_updates_one_profile(self) -> None:
+        user_id = await self._create_user("again@example.com")
+
+        first = await self._confirm_draft(user_id, "第一版")
+        second = await self._confirm_draft(user_id, "第二版")
+
+        self.assertEqual(first.status, 201)
+        self.assertEqual(second.status, 201)
+        # One profile per user: re-confirming replaces the row instead of
+        # leaving a second profile nobody can tell apart.
+        self.assertEqual(second.json()["id"], first.json()["id"])
+        self.assertEqual(second.json()["capabilities"]["summary"], "第二版")
+
+    async def test_unedited_suggestions_are_stored_as_suggestions(self) -> None:
+        user_id = await self._create_user("suggested@example.com")
+
+        response = await self._confirm_draft(
+            user_id, "学生", recommended_roles=["AI 应用开发实习生"]
+        )
+
+        capabilities = response.json()["capabilities"]
+        self.assertEqual(capabilities["suggested_roles"], ["AI 应用开发实习生"])
+        self.assertEqual(capabilities["target_roles"], ["AI 应用开发实习生"])
+        self.assertEqual(capabilities["target_roles_source"], "suggested")
+
+    async def test_edited_target_roles_are_stored_as_confirmed(self) -> None:
+        user_id = await self._create_user("confirmed@example.com")
+
+        response = await self._confirm_draft(
+            user_id,
+            "学生",
+            recommended_roles=["AI 应用开发实习生"],
+            target_roles=["算法实习生"],
+        )
+
+        capabilities = response.json()["capabilities"]
+        self.assertEqual(capabilities["suggested_roles"], ["AI 应用开发实习生"])
+        self.assertEqual(capabilities["target_roles"], ["算法实习生"])
+        self.assertEqual(capabilities["target_roles_source"], "confirmed")
+
+    async def test_missing_information_survives_the_hand_off(self) -> None:
+        user_id = await self._create_user("gaps@example.com")
+
+        response = await self._confirm_draft(
+            user_id, "学生", missing_information=["期望城市", "可实习时长"]
+        )
+        saved = response.json()
+
+        self.assertEqual(saved["missing_information"], ["期望城市", "可实习时长"])
+        fetched = await _request("GET", f"/api/v1/profiles/{saved['id']}")
+        self.assertEqual(
+            fetched.json()["missing_information"], ["期望城市", "可实习时长"]
+        )
+
 
 async def _upload(
     path: str,
