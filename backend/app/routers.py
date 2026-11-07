@@ -61,7 +61,14 @@ def _session(session: Session = Depends(get_session)) -> Session:
     return session
 
 
-def _read_or_404(operation: Callable[[], Any]) -> Any:
+def _or_404(operation: Callable[[], Any]) -> Any:
+    """Translate a missing row into HTTP 404.
+
+    Covers both direct reads and references resolved while creating a resource
+    (``POST /profiles`` resolves the user, ``POST /job-matches`` resolves the
+    profile and the job), so a bad id never escapes as an unhandled 500.
+    """
+
     try:
         return operation()
     except NotFoundError as exc:
@@ -110,27 +117,29 @@ def add_user(data: UserCreate, session: Session = Depends(_session)) -> UserRead
 
 @router.get("/users/{user_id}", response_model=UserRead)
 def read_user(user_id: str, session: Session = Depends(_session)) -> UserRead:
-    return UserRead.model_validate(_read_or_404(lambda: get_user(session, user_id)))
+    return UserRead.model_validate(_or_404(lambda: get_user(session, user_id)))
 
 
 @router.post("/profiles", response_model=ProfileRead, status_code=201)
 def add_profile(data: ProfileCreate, session: Session = Depends(_session)) -> ProfileRead:
-    return ProfileRead.model_validate(create_profile(session, data))
+    profile = _or_404(lambda: create_profile(session, data))
+    return ProfileRead.model_validate(profile)
 
 
 @router.get("/profiles/{profile_id}", response_model=ProfileRead)
 def read_profile(profile_id: str, session: Session = Depends(_session)) -> ProfileRead:
-    return ProfileRead.model_validate(_read_or_404(lambda: get_profile(session, profile_id)))
+    return ProfileRead.model_validate(_or_404(lambda: get_profile(session, profile_id)))
 
 
 @router.post("/resumes", response_model=ResumeRead, status_code=201)
 def add_resume(data: ResumeCreate, session: Session = Depends(_session)) -> ResumeRead:
-    return ResumeRead.model_validate(create_resume(session, data))
+    resume = _or_404(lambda: create_resume(session, data))
+    return ResumeRead.model_validate(resume)
 
 
 @router.get("/resumes/{resume_id}", response_model=ResumeRead)
 def read_resume(resume_id: str, session: Session = Depends(_session)) -> ResumeRead:
-    return ResumeRead.model_validate(_read_or_404(lambda: get_resume(session, resume_id)))
+    return ResumeRead.model_validate(_or_404(lambda: get_resume(session, resume_id)))
 
 
 @router.post("/jobs", response_model=JobRead, status_code=201)
@@ -151,13 +160,15 @@ def read_jobs(
 
 @router.get("/jobs/{job_id}", response_model=JobRead)
 def read_job(job_id: str, session: Session = Depends(_session)) -> JobRead:
-    return JobRead.model_validate(_read_or_404(lambda: get_job(session, job_id)))
+    return JobRead.model_validate(_or_404(lambda: get_job(session, job_id)))
 
 
 @router.post("/job-matches", response_model=JobMatchRead, status_code=201)
 def add_job_match(data: JobMatchCreate, session: Session = Depends(_session)) -> JobMatchRead:
     try:
         match = create_job_match(session, data)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ConstraintRejectedError as exc:
         raise HTTPException(
             status_code=422,
@@ -172,7 +183,7 @@ def add_job_match(data: JobMatchCreate, session: Session = Depends(_session)) ->
 
 @router.get("/job-matches/{match_id}", response_model=JobMatchRead)
 def read_job_match(match_id: str, session: Session = Depends(_session)) -> JobMatchRead:
-    return JobMatchRead.model_validate(_read_or_404(lambda: get_job_match(session, match_id)))
+    return JobMatchRead.model_validate(_or_404(lambda: get_job_match(session, match_id)))
 
 
 @router.get("/job-fit", response_model=list[JobFitAnalysisRead])
@@ -191,5 +202,5 @@ def read_job_fit_analysis(
     session: Session = Depends(_session),
 ) -> JobFitAnalysisRead:
     return JobFitAnalysisRead.model_validate(
-        _read_or_404(lambda: get_job_fit_analysis(session, request_id))
+        _or_404(lambda: get_job_fit_analysis(session, request_id))
     )

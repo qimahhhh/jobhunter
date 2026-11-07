@@ -277,6 +277,46 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(detail["rejections"])
         self.assertIn("正式", detail["rejections"][0])
 
+    async def test_creating_profile_or_resume_for_missing_user_returns_404(self) -> None:
+        profile_response = await _request(
+            "POST",
+            "/api/v1/profiles",
+            {
+                "user_id": "missing-user",
+                "requirements": {"desired_role": "AI Intern"},
+                "capabilities": {"summary": "Python student"},
+            },
+        )
+        resume_response = await _request(
+            "POST",
+            "/api/v1/resumes",
+            {"user_id": "missing-user", "source_name": "student-resume"},
+        )
+
+        self.assertEqual(profile_response.status, 404)
+        self.assertEqual(profile_response.json()["detail"], "user not found")
+        self.assertEqual(resume_response.status, 404)
+        self.assertEqual(resume_response.json()["detail"], "user not found")
+
+    async def test_job_match_with_missing_reference_returns_404(self) -> None:
+        profile_id = await self._create_profile()
+
+        missing_profile = await _request(
+            "POST",
+            "/api/v1/job-matches",
+            {"user_profile_id": "missing-profile", "job_id": "missing-job"},
+        )
+        missing_job = await _request(
+            "POST",
+            "/api/v1/job-matches",
+            {"user_profile_id": profile_id, "job_id": "missing-job"},
+        )
+
+        self.assertEqual(missing_profile.status, 404)
+        self.assertEqual(missing_profile.json()["detail"], "profile not found")
+        self.assertEqual(missing_job.status, 404)
+        self.assertEqual(missing_job.json()["detail"], "job not found")
+
     async def test_job_status_is_pending_verification_after_creation(self) -> None:
         response = await _request("POST", "/api/v1/jobs", _job_payload())
 
