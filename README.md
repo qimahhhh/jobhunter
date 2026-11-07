@@ -1,10 +1,10 @@
-# AI-Job-Hunter Backend Foundation
+# AI-Job-Hunter 后端基础
 
-This directory contains the first minimal FastAPI foundation for the AI-Job-Hunter hackathon MVP.
+此目录包含 AI-Job-Hunter 黑客松 MVP 的第一版最小化 FastAPI 基础。
 
-The implementation uses deterministic mock agents behind stable interfaces. Replace the mocks with MiMo-powered agents without changing the API contract.
+当前实现通过稳定的接口调用确定性模拟代理。后续可将模拟代理替换为 MiMo 驱动的代理，而无需更改 API 契约。
 
-## Run
+## 运行
 
 ```powershell
 python -m venv .venv
@@ -12,22 +12,22 @@ python -m venv .venv
 .\.venv\Scripts\python -m uvicorn backend.app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs`.
+打开 `http://127.0.0.1:8000/docs`。
 
-## API
+## API 说明
 
-`POST /api/v1/job-fit` accepts one student profile and one target job. It returns source checks, a fit report, resume suggestions, interview questions, warnings, and an execution log.
+`POST /api/v1/job-fit` 接收一份学生档案和一个目标岗位，并返回来源检查、匹配报告、简历建议、面试问题、警告信息和执行日志。
 
-## Test
+## 测试
 
 ```powershell
 $env:PYTHONPATH = "."
 python -m unittest discover -s backend/tests -v
 ```
 
-## Next Steps
+## 后续计划
 
-1. Add real job fixtures and source verification.
-2. Replace the three mock agents with MiMo clients.
-3. Persist requests, reports, source snapshots, and failures.
-4. Add the React workbench UI.
+1. 添加真实岗位测试数据和来源验证。
+2. 将三个模拟代理替换为 MiMo 客户端。
+3. 持久化请求、报告、来源快照和失败信息。
+4. 添加 React 工作台界面。
