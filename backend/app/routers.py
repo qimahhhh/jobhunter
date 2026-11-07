@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from .db import get_session
-from .schemas import EmploymentType
+from .orchestrator import JobFitOrchestrator, JobFitRunError
+from .schemas import (
+    EmploymentType,
+    JobFitFailureResponse,
+    JobFitRequest,
+    JobFitResponse,
+)
 from .schemas_resources import (
     JobCreate,
     JobFitAnalysisRead,
@@ -25,6 +33,7 @@ from .services import (
     ConflictError,
     NotFoundError,
     create_job,
+    create_job_fit_analysis,
     create_job_match,
     create_profile,
     create_resume,
@@ -40,7 +49,11 @@ from .services import (
 )
 
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+health_router = APIRouter(tags=["Health"])
+orchestrator = JobFitOrchestrator()
 
 
 def _session(session: Session = Depends(get_session)) -> Session:
@@ -52,6 +65,37 @@ def _read_or_404(operation: Callable[[], Any]) -> Any:
         return operation()
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@health_router.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": "ai-job-hunter"}
+
+
+@router.post(
+    "/job-fit",
+    response_model=JobFitResponse,
+    responses={500: {"model": JobFitFailureResponse}},
+)
+def job_fit(
+    request: JobFitRequest,
+    session: Session = Depends(get_session),
+) -> JobFitResponse | JSONResponse:
+    try:
+        response = orchestrator.run(request)
+        create_job_fit_analysis(session, request, response)
+        return response
+    except JobFitRunError as exc:
+        logger.exception(
+            "job-fit request %s failed at stage %s; run_log=%s",
+            exc.request_id,
+            exc.failed_stage,
+            [event.model_dump() for event in exc.run_log],
+        )
+        return JSONResponse(
+            status_code=500,
+            content=exc.to_response().model_dump(mode="json"),
+        )
 
 
 @router.post("/users", response_model=UserRead, status_code=201)

@@ -7,7 +7,7 @@ from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.app import main as api
+from backend.app import routers as api
 from backend.app.models import Base
 from backend.app.orchestrator import JobFitOrchestrator, JobFitRunError
 from backend.app.schemas import JobFitRequest, JobInput, ProfileInput, RunEvent
@@ -103,7 +103,7 @@ class JobFitOrchestratorTest(unittest.TestCase):
         )
 
         with patch.object(api.orchestrator, "run", side_effect=failure):
-            with self.assertLogs("backend.app.main", level="ERROR") as logs:
+            with self.assertLogs("backend.app.routers", level="ERROR") as logs:
                 response = api.job_fit(make_request(), session=None)
 
         body = json.loads(response.body)
