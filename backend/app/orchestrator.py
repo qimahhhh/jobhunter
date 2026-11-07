@@ -6,10 +6,42 @@ from collections.abc import Callable
 from typing import TypeVar
 
 from .agents import CareerAnalystAgent, ContentAgent, JobVerifierAgent
-from .schemas import JobFitRequest, JobFitResponse, RunEvent
+from .schemas import (
+    JobFitFailureResponse,
+    JobFitRequest,
+    JobFitResponse,
+    RunEvent,
+)
 
 
 T = TypeVar("T")
+
+
+class JobFitRunError(RuntimeError):
+    def __init__(
+        self,
+        request_id: str,
+        run_log: list[RunEvent],
+        failed_stage: str,
+        error_type: str,
+        message: str,
+    ) -> None:
+        self.request_id = request_id
+        self.run_log = run_log.copy()
+        self.failed_stage = failed_stage
+        self.error_type = error_type
+        self.message = message
+        super().__init__(f"{failed_stage} failed: {error_type}: {message}")
+
+    def to_response(self) -> JobFitFailureResponse:
+        return JobFitFailureResponse(
+            request_id=self.request_id,
+            status="failed",
+            failed_stage=self.failed_stage,
+            error_type=self.error_type,
+            message=self.message,
+            run_log=self.run_log,
+        )
 
 
 class JobFitOrchestrator:
@@ -25,6 +57,7 @@ class JobFitOrchestrator:
 
     def _run_stage(
         self,
+        request_id: str,
         events: list[RunEvent],
         stage: str,
         operation: Callable[[], T],
@@ -33,15 +66,23 @@ class JobFitOrchestrator:
         try:
             value = operation()
         except Exception as exc:
+            error_type = type(exc).__name__
+            message = str(exc)
             events.append(
                 RunEvent(
                     stage=stage,
                     status="failed",
                     duration_ms=int((time.perf_counter() - started) * 1000),
-                    detail=f"{type(exc).__name__}: {exc}",
+                    detail=f"{error_type}: {message}",
                 )
             )
-            raise
+            raise JobFitRunError(
+                request_id=request_id,
+                run_log=events,
+                failed_stage=stage,
+                error_type=error_type,
+                message=message,
+            ) from exc
 
         events.append(
             RunEvent(
@@ -54,18 +95,22 @@ class JobFitOrchestrator:
         return value
 
     def run(self, request: JobFitRequest) -> JobFitResponse:
+        request_id = uuid.uuid4().hex
         events: list[RunEvent] = []
         verification = self._run_stage(
+            request_id,
             events,
             self.verifier.name,
             lambda: self.verifier.run(request.job),
         )
         fit_report = self._run_stage(
+            request_id,
             events,
             self.analyst.name,
             lambda: self.analyst.run(request.profile, request.job),
         )
         resume_suggestions, interview_questions = self._run_stage(
+            request_id,
             events,
             self.content.name,
             lambda: self.content.run(request.job, fit_report),
@@ -80,7 +125,7 @@ class JobFitOrchestrator:
             warnings.append("No experience was provided; analysis uses only summary and skills.")
 
         return JobFitResponse(
-            request_id=uuid.uuid4().hex,
+            request_id=request_id,
             job=verification,
             fit_report=fit_report,
             resume_suggestions=resume_suggestions,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -58,4 +60,13 @@ class JobFitResponse(BaseModel):
     resume_suggestions: list[str]
     interview_questions: list[InterviewQuestion]
     warnings: list[str]
+    run_log: list[RunEvent]
+
+
+class JobFitFailureResponse(BaseModel):
+    request_id: str
+    status: Literal["failed"]
+    failed_stage: str
+    error_type: str
+    message: str
     run_log: list[RunEvent]
