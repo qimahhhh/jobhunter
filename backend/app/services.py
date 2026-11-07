@@ -11,6 +11,7 @@ from .schemas import (
     EmploymentType,
     JobFitRequest,
     JobFitResponse,
+    FitReport,
     JobInput,
     ProfileInput,
 )
@@ -33,6 +34,40 @@ class ConflictError(ValueError):
 
 def _id() -> str:
     return uuid.uuid4().hex
+
+
+def _job_input_to_job(data: JobInput, *, id: str) -> Job:
+    values = data.model_dump()
+    location = values.pop("location", None)
+    salary_min = values.pop("salary_min", None)
+    salary_max = values.pop("salary_max", None)
+    return Job(
+        id=id,
+        **values,
+        location=location,
+        salary_min=salary_min,
+        salary_max=salary_max,
+        verification_status="source_attached" if data.source_url else "needs_review",
+    )
+
+
+def _fit_report_to_job_match(
+    report: FitReport,
+    *,
+    id: str,
+    user_profile_id: str,
+    job_id: str,
+) -> JobMatch:
+    return JobMatch(
+        id=id,
+        user_profile_id=user_profile_id,
+        job_id=job_id,
+        score=report.score,
+        match_points=report.match_points,
+        gaps=report.gaps,
+        recommendation=report.recommendation,
+        confidence=report.confidence,
+    )
 
 
 def create_user(session: Session, data: UserCreate) -> User:
@@ -92,11 +127,7 @@ def get_resume(session: Session, resume_id: str) -> Resume:
 
 
 def create_job(session: Session, data: JobCreate) -> Job:
-    job = Job(
-        id=_id(),
-        **data.model_dump(),
-        verification_status="source_attached" if data.source_url else "needs_review",
-    )
+    job = _job_input_to_job(data, id=_id())
     session.add(job)
     session.commit()
     session.refresh(job)
@@ -142,15 +173,11 @@ def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
             source_url=job.source_url,
         ),
     )
-    match = JobMatch(
+    match = _fit_report_to_job_match(
+        report,
         id=_id(),
         user_profile_id=data.user_profile_id,
         job_id=data.job_id,
-        score=report.score,
-        match_points=report.match_points,
-        gaps=report.gaps,
-        recommendation=report.recommendation,
-        confidence=report.confidence,
     )
     session.add(match)
     session.commit()

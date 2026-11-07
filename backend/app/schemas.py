@@ -36,13 +36,16 @@ class JobVerification(BaseModel):
     source_url: str | None
 
 
-class FitReport(BaseModel):
-    summary: str
+class MatchResult(BaseModel):
     score: float = Field(ge=0, le=1)
     match_points: list[str]
     gaps: list[str]
     recommendation: str
     confidence: float
+
+
+class FitReport(MatchResult):
+    summary: str
 
 
 class InterviewQuestion(BaseModel):

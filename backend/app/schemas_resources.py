@@ -5,7 +5,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .schemas import EmploymentType, JobFitRequest, JobFitResponse, JobInput
+from .schemas import (
+    EmploymentType,
+    JobFitRequest,
+    JobFitResponse,
+    JobInput,
+    MatchResult,
+)
 
 
 class UserCreate(BaseModel):
@@ -74,17 +80,13 @@ class ResumeRead(BaseModel):
     updated_at: datetime
 
 
-class JobCreate(BaseModel):
+class JobCreate(JobInput):
     title: str = Field(min_length=1, max_length=255)
     company: str = Field(min_length=1, max_length=255)
-    description: str = Field(min_length=1)
-    requirements: str = Field(min_length=1)
-    employment_type: EmploymentType
+    source_name: str = Field(min_length=1, max_length=255)
     location: str | None = None
     salary_min: int | None = None
     salary_max: int | None = None
-    source_name: str = Field(min_length=1, max_length=255)
-    source_url: str | None = None
 
 
 class JobRead(JobCreate):
@@ -112,7 +114,7 @@ class JobMatchCreate(BaseModel):
     job_id: str
 
 
-class JobMatchRead(JobMatchCreate):
+class JobMatchRead(JobMatchCreate, MatchResult):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
