@@ -13,17 +13,18 @@ from sqlalchemy.orm import Session
 
 from .chunking import (
     Block,
+    Chunk,
     blocks_from_docx,
     blocks_from_mapping,
     blocks_from_pdf,
     blocks_from_text,
+    chunk_blocks,
+    merge_blocks,
 )
 from .db import get_session
 from .extractor import (
     ExtractionResult,
-    extract_profile,
-    extract_profile_from_blocks,
-    extract_profile_from_sources,
+    extract_profile_from_chunks,
 )
 from .llm import DeepSeekClient, LLMClient, LLMError
 from .orchestrator import JobFitOrchestrator, JobFitRunError
@@ -175,27 +176,44 @@ def read_profile(profile_id: str, session: Session = Depends(_session)) -> Profi
     response_model=ResumeExtractionResponse,
     responses={503: {"description": "model client is not configured"}},
 )
-def extract_profile_from_resume(data: ResumeExtractionRequest) -> ResumeExtractionResponse:
+def extract_profile_from_resume(
+    data: ResumeExtractionRequest,
+    session: Session = Depends(_session),
+) -> ResumeExtractionResponse:
     """Chunk resume text and let the model draft a profile from it.
 
-    Nothing is persisted: the draft comes back with the chunk ids it cited so a
-    human (or the frontend) can check it before confirming through
-    ``POST /profiles/extract/confirm``.
+    The draft is not persisted here: it comes back with the chunk ids it cited
+    so a human can check it before confirming through
+    ``POST /profiles/extract/confirm``. Passing ``user_id`` stores the parsed
+    chunks as a resume record, which is what makes those ids resolvable later.
     """
+
+    chunks = chunk_blocks(
+        merge_blocks(blocks_from_text(data.text)), max_tokens=data.max_chunk_tokens
+    )
+    resume_id = _persist_chunks(
+        session,
+        user_id=data.user_id,
+        source_type="text",
+        source_name="pasted-resume",
+        chunks=chunks,
+    )
 
     try:
         client = _client()
     except LLMError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    result = extract_profile(data.text, client, max_chunk_tokens=data.max_chunk_tokens)
-    return _extraction_response(result)
+    result = extract_profile_from_chunks(chunks, client)
+    return _extraction_response(result, resume_id)
 
 
 _MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
-def _extraction_response(result: ExtractionResult) -> ResumeExtractionResponse:
+def _extraction_response(
+    result: ExtractionResult, resume_id: str | None = None
+) -> ResumeExtractionResponse:
     return ResumeExtractionResponse(
         profile=result.profile,
         recommended_roles=result.recommended_roles,
@@ -204,8 +222,49 @@ def _extraction_response(result: ExtractionResult) -> ResumeExtractionResponse:
         unresolved_evidence=result.unresolved,
         chunk_ids=result.chunk_ids,
         degraded=result.degraded,
+        resume_id=resume_id,
         notes=result.notes,
     )
+
+
+def _persist_chunks(
+    session: Session,
+    *,
+    user_id: str | None,
+    source_type: str,
+    source_name: str,
+    chunks: list[Chunk],
+) -> str | None:
+    """Store the parsed chunks when the caller identifies a user.
+
+    A chunk id means nothing once the response is gone, so this record is what
+    lets a confirmed profile point back at the paragraph a claim came from.
+    Without ``user_id`` the endpoint stays stateless, which is what the demo
+    flow relies on before a user exists.
+    """
+
+    if not user_id:
+        return None
+
+    payload = ResumeCreate(
+        user_id=user_id,
+        source_type=source_type,
+        source_name=source_name,
+        content={
+            "chunks": [
+                {
+                    "id": chunk.chunk_id,
+                    "source": chunk.source,
+                    "section": chunk.section,
+                    "text": chunk.text,
+                    "tokens": chunk.tokens,
+                }
+                for chunk in chunks
+            ],
+            "chunk_count": len(chunks),
+        },
+    )
+    return _or_404(lambda: create_resume(session, payload)).id
 
 
 async def _read_upload(request: Request) -> bytes:
@@ -235,16 +294,18 @@ async def _read_upload(request: Request) -> bytes:
 async def extract_profile_from_upload(
     request: Request,
     filename: str = Query(min_length=1),
+    user_id: str | None = Query(default=None),
     max_chunk_tokens: int = Query(default=900, ge=50, le=4000),
+    session: Session = Depends(_session),
 ) -> ResumeExtractionResponse:
     """Parse an uploaded resume and let the model draft a profile from it.
 
     The body is the raw file bytes and ``filename`` carries the extension that
     picks the parser, so a client uploads with one ``fetch`` and the server
-    needs no multipart support. Same contract as ``POST /profiles/extract``:
-    nothing is persisted, and the draft comes back with the chunk ids it cited
-    so a human (or the frontend) can check it before confirming through
-    ``POST /profiles/extract/confirm``.
+    needs no multipart support. The draft itself is not stored: it comes back
+    with the chunk ids it cited so a human can check it before confirming
+    through ``POST /profiles/extract/confirm``. Passing ``user_id`` stores the
+    parsed chunks as a resume record first, so those ids stay resolvable.
     """
 
     suffix = Path(filename).suffix.lower()
@@ -258,6 +319,11 @@ async def extract_profile_from_upload(
             detail=f"只支持 .pdf / .docx 简历文件，收到：{filename}",
         )
 
+    # Resolve the user before reading the body: an unknown id should not cost a
+    # 20MB buffer and a PDF parse before it fails.
+    if user_id:
+        _or_404(lambda: get_user(session, user_id))
+
     content = await _read_upload(request)
     if not content:
         raise HTTPException(status_code=400, detail="简历文件是空的")
@@ -269,6 +335,16 @@ async def extract_profile_from_upload(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"简历文件解析失败：{exc}") from exc
 
+    chunks = chunk_blocks(merge_blocks(blocks), max_tokens=max_chunk_tokens)
+    resume_id = await run_in_threadpool(
+        _persist_chunks,
+        session,
+        user_id=user_id,
+        source_type=suffix.lstrip("."),
+        source_name=filename,
+        chunks=chunks,
+    )
+
     try:
         client = _client()
     except LLMError as exc:
@@ -277,10 +353,8 @@ async def extract_profile_from_upload(
     # Parsing a PDF and one model turn are both blocking calls. The route is
     # async only because streaming the body is, so hand them to the thread
     # pool: otherwise one 5s extraction stalls every other request on the loop.
-    result = await run_in_threadpool(
-        extract_profile_from_blocks, blocks, client, max_chunk_tokens=max_chunk_tokens
-    )
-    return _extraction_response(result)
+    result = await run_in_threadpool(extract_profile_from_chunks, chunks, client)
+    return _extraction_response(result, resume_id)
 
 
 @router.post(
@@ -293,6 +367,7 @@ async def extract_profile_from_upload(
 )
 def extract_profile_from_bundle(
     data: ResumeSourceBundleRequest,
+    session: Session = Depends(_session),
 ) -> ResumeExtractionResponse:
     """Draft a profile from resume text, a self description and projects.
 
@@ -319,15 +394,22 @@ def extract_profile_from_bundle(
         )
         groups.append(blocks_from_mapping(payload, source="project"))
 
+    chunks = chunk_blocks(merge_blocks(*groups), max_tokens=data.max_chunk_tokens)
+    resume_id = _persist_chunks(
+        session,
+        user_id=data.user_id,
+        source_type="text",
+        source_name="bundle",
+        chunks=chunks,
+    )
+
     try:
         client = _client()
     except LLMError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    result = extract_profile_from_sources(
-        groups, client, max_chunk_tokens=data.max_chunk_tokens
-    )
-    return _extraction_response(result)
+    result = extract_profile_from_chunks(chunks, client)
+    return _extraction_response(result, resume_id)
 
 
 @router.post(
@@ -373,6 +455,8 @@ def confirm_extracted_profile(
         missing_information=[
             item.strip() for item in data.missing_information if item.strip()
         ],
+        evidence=[ref.strip() for ref in data.evidence if ref.strip()],
+        source_resume_id=data.resume_id,
     )
     profile = _or_404(lambda: create_profile(session, payload))
     return ProfileRead.model_validate(profile)

@@ -124,6 +124,8 @@ def create_profile(session: Session, data: ProfileCreate) -> UserProfile:
             requirements=data.requirements.model_dump(),
             capabilities=data.capabilities.model_dump(),
             missing_information=list(data.missing_information),
+            evidence=list(data.evidence),
+            source_resume_id=data.source_resume_id,
         )
         session.add(profile)
     else:
@@ -132,6 +134,8 @@ def create_profile(session: Session, data: ProfileCreate) -> UserProfile:
         profile.requirements = data.requirements.model_dump()
         profile.capabilities = data.capabilities.model_dump()
         profile.missing_information = list(data.missing_information)
+        profile.evidence = list(data.evidence)
+        profile.source_resume_id = data.source_resume_id
 
     session.commit()
     session.refresh(profile)

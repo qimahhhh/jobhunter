@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 
 _UNIQUE_PROFILE_INDEX = "ux_user_profiles_user_id"
 
+# Columns a stored profile grew after the first schema. ``ALTER TABLE`` in
+# SQLite needs a constant default, and '[]' parses back into an empty list.
+_ADDED_PROFILE_COLUMNS = (
+    ("missing_information", "JSON DEFAULT '[]'"),
+    ("evidence", "JSON DEFAULT '[]'"),
+    ("source_resume_id", "VARCHAR(36)"),
+)
+
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ai_job_hunter.db")
 engine_kwargs: dict[str, object] = {"future": True}
@@ -54,21 +62,23 @@ def _migrate_jobs(inspector: Any) -> None:
 
 
 def _migrate_user_profiles(inspector: Any) -> None:
-    """Keep the gaps a draft reported, and allow one profile per user.
+    """Add the columns that make a stored profile traceable.
 
     ``create_all`` only creates missing tables, so a database that already
-    exists keeps its old shape: the column has to be added here. The unique
-    index is best effort, because a database that already holds two profiles
-    for the same user cannot take it, and refusing to start would be worse than
-    a warning the developer can act on.
+    exists keeps its old shape and every column has to be added here. The
+    unique index is best effort, because a database that already holds two
+    profiles for the same user cannot take it, and refusing to start would be
+    worse than a warning the developer can act on.
     """
 
-    if "missing_information" not in _columns(inspector, "user_profiles"):
+    columns = _columns(inspector, "user_profiles")
+    for name, definition in _ADDED_PROFILE_COLUMNS:
+        if name in columns:
+            continue
         with engine.begin() as connection:
             connection.execute(
                 text(
-                    "ALTER TABLE user_profiles "
-                    "ADD COLUMN missing_information JSON DEFAULT '[]'"
+                    f"ALTER TABLE user_profiles ADD COLUMN {name} {definition}"
                 )
             )
 

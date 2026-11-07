@@ -407,6 +407,8 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         recommended_roles: list[str] | None = None,
         target_roles: list[str] | None = None,
         missing_information: list[str] | None = None,
+        resume_id: str | None = None,
+        evidence: list[str] | None = None,
     ) -> ApiResponse:
         payload: dict[str, Any] = {
             "user_id": user_id,
@@ -419,6 +421,10 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
             payload["target_roles"] = target_roles
         if missing_information is not None:
             payload["missing_information"] = missing_information
+        if resume_id is not None:
+            payload["resume_id"] = resume_id
+        if evidence is not None:
+            payload["evidence"] = evidence
         return await _request("POST", "/api/v1/profiles/extract/confirm", payload)
 
     async def test_confirming_twice_updates_one_profile(self) -> None:
@@ -475,17 +481,50 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
             fetched.json()["missing_information"], ["期望城市", "可实习时长"]
         )
 
+    async def test_confirmed_draft_keeps_its_source_and_evidence(self) -> None:
+        user_id = await self._create_user("trace@example.com")
+        resume = await _request(
+            "POST",
+            "/api/v1/resumes",
+            {
+                "user_id": user_id,
+                "source_name": "resume.pdf",
+                "content": {"chunks": [{"id": "c002", "text": "字节跳动 后端开发实习"}]},
+            },
+        )
+        self.assertEqual(resume.status, 201)
+        resume_id = resume.json()["id"]
+
+        response = await self._confirm_draft(
+            user_id,
+            "学生",
+            resume_id=resume_id,
+            evidence=["c002", "c003"],
+        )
+
+        saved = response.json()
+        self.assertEqual(saved["source_resume_id"], resume_id)
+        self.assertEqual(saved["evidence"], ["c002", "c003"])
+
+        fetched = await _request("GET", f"/api/v1/profiles/{saved['id']}")
+        self.assertEqual(fetched.json()["source_resume_id"], resume_id)
+        self.assertEqual(fetched.json()["evidence"], ["c002", "c003"])
+
 
 async def _upload(
     path: str,
     content: bytes,
     filename: str = "resume.pdf",
+    extra_query: str = "",
 ) -> ApiResponse:
+    query = f"filename={filename}"
+    if extra_query:
+        query = f"{query}&{extra_query}"
     return await _raw_request(
         "POST",
         path,
         content,
-        query=f"filename={filename}",
+        query=query,
         content_type="application/octet-stream",
     )
 
@@ -504,6 +543,94 @@ class _FakeClient:
 
 class ExtractionApiTest(unittest.IsolatedAsyncioTestCase):
     """The extraction endpoints: free text and uploaded resume files."""
+
+    def setUp(self) -> None:
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        self.session_factory = sessionmaker(
+            bind=engine,
+            autoflush=False,
+            expire_on_commit=False,
+        )
+
+        def override_get_session() -> Iterator[Session]:
+            session = self.session_factory()
+            try:
+                yield session
+            finally:
+                session.close()
+
+        app.dependency_overrides[get_session] = override_get_session
+
+    def tearDown(self) -> None:
+        app.dependency_overrides.clear()
+
+    async def test_upload_with_a_user_stores_the_parsed_chunks(self) -> None:
+        user = await _request(
+            "POST",
+            "/api/v1/users",
+            {"email": "chunks@example.com", "display_name": "Chunks"},
+        )
+        user_id = user.json()["id"]
+        blocks = [
+            Block("res001", "resume", "教育背景", "北京交通大学", 0),
+            Block("res002", "resume", "实习经历", "字节跳动 后端开发实习", 1),
+        ]
+        client = _FakeClient(
+            [{"summary": "学生", "skills": [], "experiences": [], "evidence": ["c002"]}]
+        )
+
+        with mock.patch("backend.app.routers.blocks_from_pdf", return_value=blocks):
+            with mock.patch("backend.app.routers._client", return_value=client):
+                response = await _upload(
+                    "/api/v1/profiles/extract/file",
+                    b"%PDF-fake",
+                    extra_query=f"user_id={user_id}",
+                )
+
+        body = response.json()
+        self.assertEqual(response.status, 200)
+        self.assertTrue(body["resume_id"])
+
+        stored = await _request("GET", f"/api/v1/resumes/{body['resume_id']}")
+        self.assertEqual(stored.status, 200)
+        chunks = stored.json()["content"]["chunks"]
+        # The stored ids are the ones the model saw, which is the whole point:
+        # an evidence id stays resolvable after the response is gone.
+        self.assertEqual([chunk["id"] for chunk in chunks], ["c001", "c002"])
+        self.assertEqual(chunks[1]["section"], "实习经历")
+
+    async def test_upload_for_a_missing_user_returns_404(self) -> None:
+        with mock.patch(
+            "backend.app.routers.blocks_from_pdf",
+            return_value=[Block("res001", "resume", "教育背景", "北京交通大学", 0)],
+        ):
+            with mock.patch("backend.app.routers._client") as client:
+                response = await _upload(
+                    "/api/v1/profiles/extract/file",
+                    b"%PDF-fake",
+                    extra_query="user_id=missing-user",
+                )
+
+        self.assertEqual(response.status, 404)
+        client.assert_not_called()
+
+    async def test_upload_without_a_user_stays_stateless(self) -> None:
+        blocks = [Block("res001", "resume", "教育背景", "北京交通大学", 0)]
+        client = _FakeClient(
+            [{"summary": "学生", "skills": [], "experiences": [], "evidence": ["c001"]}]
+        )
+
+        with mock.patch("backend.app.routers.blocks_from_pdf", return_value=blocks):
+            with mock.patch("backend.app.routers._client", return_value=client):
+                response = await _upload("/api/v1/profiles/extract/file", b"%PDF-fake")
+
+        self.assertEqual(response.status, 200)
+        self.assertIsNone(response.json()["resume_id"])
 
     async def test_uploaded_pdf_reaches_the_parser_and_returns_the_draft(self) -> None:
         blocks = [

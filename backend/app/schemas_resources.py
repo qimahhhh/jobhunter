@@ -65,6 +65,8 @@ class ProfileCreate(BaseModel):
     requirements: UserRequirements
     capabilities: CapabilityProfile
     missing_information: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    source_resume_id: str | None = None
 
 
 class ProfileRead(BaseModel):
@@ -75,6 +77,8 @@ class ProfileRead(BaseModel):
     requirements: UserRequirements
     capabilities: CapabilityProfile
     missing_information: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    source_resume_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -89,6 +93,10 @@ class ProfileConfirmationRequest(BaseModel):
 
     ``missing_information`` carries the gaps the draft reported, because a
     prompt that disappears with the response is a prompt the user never reads.
+
+    ``resume_id`` and ``evidence`` are what make the stored profile traceable:
+    the resume holds the parsed chunks, the evidence names the ones the draft
+    cited, so a claim can be followed back to the paragraph it came from.
     """
 
     user_id: str
@@ -97,6 +105,8 @@ class ProfileConfirmationRequest(BaseModel):
     recommended_roles: list[str] = Field(default_factory=list)
     target_roles: list[str] | None = None
     missing_information: list[str] = Field(default_factory=list)
+    resume_id: str | None = None
+    evidence: list[str] = Field(default_factory=list)
 
 
 class ResumeCreate(BaseModel):

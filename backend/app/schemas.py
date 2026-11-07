@@ -57,6 +57,7 @@ class ProfileDraft(BaseModel):
 
 class ResumeExtractionRequest(BaseModel):
     text: str = Field(min_length=1)
+    user_id: str | None = None
     max_chunk_tokens: int = Field(default=900, ge=50, le=4000)
 
 
@@ -71,6 +72,7 @@ class ResumeSourceBundleRequest(BaseModel):
     resume_text: str | None = None
     self_description: str | None = None
     projects: dict[str, Any] | list[Any] | None = None
+    user_id: str | None = None
     max_chunk_tokens: int = Field(default=900, ge=50, le=4000)
 
     @model_validator(mode="after")
@@ -88,6 +90,13 @@ class ResumeSourceBundleRequest(BaseModel):
 
 
 class ResumeExtractionResponse(BaseModel):
+    """A draft plus the record it can be traced back to.
+
+    ``resume_id`` is present only when the caller supplied ``user_id``: the
+    parsed chunks are then stored, so a citation id can be resolved back to the
+    text it came from after the request is gone.
+    """
+
     profile: ProfileInput | None
     recommended_roles: list[str]
     missing_information: list[str]
@@ -95,6 +104,7 @@ class ResumeExtractionResponse(BaseModel):
     unresolved_evidence: list[str]
     chunk_ids: list[str]
     degraded: bool
+    resume_id: str | None = None
     notes: list[str]
 
 

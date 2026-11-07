@@ -221,28 +221,6 @@ def extract_profile(
     )
 
 
-def extract_profile_from_sources(
-    sources: Iterable[Sequence[Block]],
-    client: LLMClient,
-    *,
-    max_chunk_tokens: int = 900,
-    max_context_tokens: int = DEFAULT_CONTEXT_BUDGET,
-) -> ExtractionResult:
-    """Merge several sources (resume, projects, self description) into one draft.
-
-    Every block keeps the ``source`` label it was built with, so after the
-    merge a citation still says which input a claim came from.
-    """
-
-    blocks = [block for source in sources for block in source]
-    return extract_profile_from_blocks(
-        blocks,
-        client,
-        max_chunk_tokens=max_chunk_tokens,
-        max_context_tokens=max_context_tokens,
-    )
-
-
 def extract_profile_from_blocks(
     blocks: Sequence[Block],
     client: LLMClient,
@@ -261,7 +239,26 @@ def extract_profile_from_blocks(
     quietly change the answer instead of failing.
     """
 
-    chunks = chunk_blocks(merge_blocks(blocks), max_tokens=max_chunk_tokens)
+    return extract_profile_from_chunks(
+        chunk_blocks(merge_blocks(blocks), max_tokens=max_chunk_tokens),
+        client,
+        max_context_tokens=max_context_tokens,
+    )
+
+
+def extract_profile_from_chunks(
+    chunks: Sequence[Chunk],
+    client: LLMClient,
+    *,
+    max_context_tokens: int = DEFAULT_CONTEXT_BUDGET,
+) -> ExtractionResult:
+    """Extract from chunks that were already built, and possibly already stored.
+
+    Split out so a route can persist the chunks it is about to send: a citation
+    is only resolvable afterwards if the stored chunk ids are the ones the model
+    actually saw.
+    """
+
     chunk_ids = [chunk.chunk_id for chunk in chunks]
     if not chunks:
         return ExtractionResult(
