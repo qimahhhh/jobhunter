@@ -290,6 +290,18 @@ def blocks_from_pdf(path: str | Path) -> list[Block]:
         for page in pdf.pages:
             pages.append(_page_cells(page))
 
+    return blocks_from_pages(pages)
+
+
+def blocks_from_pages(pages: Sequence[Sequence[str]]) -> list[Block]:
+    """Turn per-page layout cells into blocks, without a PDF library.
+
+    Split out of :func:`blocks_from_pdf` so the part after extraction (page
+    furniture, heading detection, section assignment) can be tested without a
+    real file. Everything that can go wrong on a two-column resume happens
+    here, not in ``pdfplumber``.
+    """
+
     cells = [cell for page in _strip_page_furniture(pages) for cell in page]
     return _assemble((("text", cell) for cell in cells), source="resume", prefix="res")
 
