@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import logging
+import os
+import re
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .db import init_db
@@ -13,6 +16,19 @@ from .schemas import JobFitFailureResponse, JobFitRequest, JobFitResponse
 
 
 logger = logging.getLogger(__name__)
+
+
+def _cors_origin_pattern() -> str:
+    configured_origins = [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    local_frontend = r"https?://(?:localhost|127\.0\.0\.1)(?::\d+)?"
+    if configured_origins:
+        allowed_origins = "|".join(re.escape(origin) for origin in configured_origins)
+        return rf"^(?:{allowed_origins})$"
+    return rf"^(?:{local_frontend})$"
 
 
 @asynccontextmanager
@@ -26,6 +42,12 @@ app = FastAPI(
     version="0.1.0",
     description="Minimal FastAPI foundation for the hackathon MVP.",
     lifespan=lifespan,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=_cors_origin_pattern(),
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 orchestrator = JobFitOrchestrator()
 app.include_router(router, prefix="/api/v1", tags=["resources"])
