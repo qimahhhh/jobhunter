@@ -12,3 +12,15 @@ dependencies = [
     "sqlalchemy>=2,<3",
     "uvicorn[standard]>=0.30,<1",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+# The tests import `backend.app.*` from the repo root, but pytest's default
+# prepend mode only reaches `backend/tests` (that directory has no
+# __init__.py), so the repo root has to be on sys.path explicitly.
+pythonpath = ["."]
+testpaths = ["backend/tests"]
