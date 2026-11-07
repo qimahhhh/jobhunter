@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from io import BytesIO
 import json
 import unittest
 from collections.abc import Iterator
 from typing import Any
+from unittest import mock
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from backend.app.chunking import Block
 from backend.app.db import get_session
+from backend.app.llm import LLMError
 from backend.app.main import app
 from backend.app.models import Base
 
@@ -24,16 +28,16 @@ class ApiResponse:
         return json.loads(self.body)
 
 
-async def _request(
+async def _raw_request(
     method: str,
     path: str,
-    payload: dict[str, Any] | None = None,
+    body: bytes,
     query: str = "",
+    content_type: str | None = None,
 ) -> ApiResponse:
-    body = b"" if payload is None else json.dumps(payload).encode()
     headers = [(b"host", b"testserver")]
-    if payload is not None:
-        headers.append((b"content-type", b"application/json"))
+    if content_type is not None:
+        headers.append((b"content-type", content_type.encode()))
     messages: list[dict[str, Any]] = []
 
     async def receive() -> dict[str, Any]:
@@ -70,6 +74,22 @@ async def _request(
         if message["type"] == "http.response.body"
     )
     return ApiResponse(start["status"], response_headers, response_body)
+
+
+async def _request(
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    query: str = "",
+) -> ApiResponse:
+    body = b"" if payload is None else json.dumps(payload).encode()
+    return await _raw_request(
+        method,
+        path,
+        body,
+        query=query,
+        content_type="application/json" if payload is not None else None,
+    )
 
 
 def _job_payload(employment_type: str = "internship") -> dict[str, Any]:
@@ -325,6 +345,172 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(job["verification_status"], "pending_verification")
         self.assertIsNotNone(job["collected_at"])
         self.assertIsNone(job["last_verified_at"])
+
+
+async def _upload(
+    path: str,
+    content: bytes,
+    filename: str = "resume.pdf",
+) -> ApiResponse:
+    return await _raw_request(
+        "POST",
+        path,
+        content,
+        query=f"filename={filename}",
+        content_type="application/octet-stream",
+    )
+
+
+class _FakeClient:
+    """Stands in for DeepSeek: replays scripted replies and records the prompts."""
+
+    def __init__(self, replies: list[dict[str, Any]]) -> None:
+        self.replies = list(replies)
+        self.calls: list[dict[str, str]] = []
+
+    def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+        self.calls.append({"system": system, "user": user})
+        return self.replies.pop(0)
+
+
+class ExtractionApiTest(unittest.IsolatedAsyncioTestCase):
+    """The extraction endpoints: free text and uploaded resume files."""
+
+    async def test_uploaded_pdf_reaches_the_parser_and_returns_the_draft(self) -> None:
+        blocks = [
+            Block("res001", "resume", "教育背景", "北京交通大学", 0),
+            Block("res002", "resume", "实习经历", "字节跳动 后端开发实习", 1),
+        ]
+        client = _FakeClient(
+            [
+                {
+                    "summary": "学生",
+                    "skills": ["Python"],
+                    "experiences": [],
+                    "evidence": ["c002", "c999"],
+                }
+            ]
+        )
+        with mock.patch(
+            "backend.app.routers.blocks_from_pdf", return_value=blocks
+        ) as parse:
+            with mock.patch("backend.app.routers._client", return_value=client):
+                response = await _upload(
+                    "/api/v1/profiles/extract/file", b"%PDF-fake", "resume.pdf"
+                )
+
+        self.assertEqual(response.status, 200)
+        body = response.json()
+        self.assertEqual(body["chunk_ids"], ["c001", "c002"])
+        self.assertEqual(body["evidence"], ["c002"])
+        self.assertEqual(body["unresolved_evidence"], ["c999"])
+        self.assertFalse(body["degraded"])
+        self.assertEqual(body["profile"]["summary"], "学生")
+        self.assertEqual(parse.call_args[0][0].read(), b"%PDF-fake")
+
+    async def test_uploaded_docx_reaches_the_model_with_its_sections(self) -> None:
+        try:
+            from docx import Document
+        except ImportError:  # pragma: no cover - dependency guard
+            self.skipTest("python-docx is not installed")
+
+        document = Document()
+        document.add_heading("实习经历", level=1)
+        document.add_paragraph("字节跳动 后端开发实习")
+        buffer = BytesIO()
+        document.save(buffer)
+
+        client = _FakeClient(
+            [
+                {
+                    "summary": "有实习经历的学生",
+                    "skills": [],
+                    "experiences": ["字节跳动 后端开发实习"],
+                    "evidence": ["c001"],
+                }
+            ]
+        )
+        with mock.patch("backend.app.routers._client", return_value=client):
+            response = await _upload(
+                "/api/v1/profiles/extract/file", buffer.getvalue(), "resume.docx"
+            )
+
+        self.assertEqual(response.status, 200)
+        prompt = client.calls[0]["user"]
+        self.assertIn("[chunk:c001 | source:resume | section:实习经历]", prompt)
+        self.assertIn("字节跳动 后端开发实习", prompt)
+        self.assertEqual(response.json()["profile"]["summary"], "有实习经历的学生")
+
+    async def test_unsupported_file_type_is_rejected(self) -> None:
+        with mock.patch("backend.app.routers._client") as client:
+            response = await _upload(
+                "/api/v1/profiles/extract/file", b"plain text", "resume.txt"
+            )
+
+        self.assertEqual(response.status, 415)
+        client.assert_not_called()
+
+    async def test_empty_upload_is_rejected(self) -> None:
+        with mock.patch("backend.app.routers.blocks_from_pdf", return_value=[]) as parse:
+            response = await _upload("/api/v1/profiles/extract/file", b"", "resume.pdf")
+
+        self.assertEqual(response.status, 400)
+        parse.assert_not_called()
+
+    async def test_oversized_upload_is_rejected(self) -> None:
+        with mock.patch("backend.app.routers._MAX_UPLOAD_BYTES", 8):
+            response = await _upload(
+                "/api/v1/profiles/extract/file", b"0123456789", "resume.pdf"
+            )
+
+        self.assertEqual(response.status, 413)
+
+    async def test_missing_model_config_returns_503(self) -> None:
+        with mock.patch("backend.app.routers.blocks_from_pdf", return_value=[]):
+            with mock.patch(
+                "backend.app.routers._client", side_effect=LLMError("missing key")
+            ):
+                response = await _upload(
+                    "/api/v1/profiles/extract/file", b"%PDF-fake", "resume.pdf"
+                )
+
+        self.assertEqual(response.status, 503)
+
+    async def test_broken_file_is_reported_as_a_client_error(self) -> None:
+        with mock.patch(
+            "backend.app.routers.blocks_from_pdf", side_effect=ValueError("bad pdf")
+        ):
+            with mock.patch("backend.app.routers._client"):
+                response = await _upload(
+                    "/api/v1/profiles/extract/file", b"%PDF-fake", "resume.pdf"
+                )
+
+        self.assertEqual(response.status, 400)
+        self.assertIn("bad pdf", response.json()["detail"])
+
+    async def test_text_endpoint_contract_is_unchanged(self) -> None:
+        client = _FakeClient(
+            [
+                {
+                    "summary": "学生",
+                    "skills": ["Python"],
+                    "experiences": [],
+                    "evidence": ["c001"],
+                }
+            ]
+        )
+        with mock.patch("backend.app.routers._client", return_value=client):
+            response = await _request(
+                "POST",
+                "/api/v1/profiles/extract",
+                {"text": "张三\n\n教育背景\n\n北京邮电大学"},
+            )
+
+        self.assertEqual(response.status, 200)
+        body = response.json()
+        self.assertEqual(body["profile"]["summary"], "学生")
+        self.assertEqual(body["evidence"], ["c001"])
+        self.assertFalse(body["degraded"])
 
 
 if __name__ == "__main__":

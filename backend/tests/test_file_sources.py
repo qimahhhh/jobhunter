@@ -15,6 +15,7 @@ content still assigns the content to the previous section.
 
 from __future__ import annotations
 
+from io import BytesIO
 import sys
 import tempfile
 import types
@@ -145,6 +146,18 @@ class PdfEntryTest(unittest.TestCase):
                 blocks_from_pdf("resume.pdf")
 
         self.assertIn("pdfplumber", str(raised.exception))
+
+    def test_binary_stream_is_handed_to_pdfplumber_unconverted(self) -> None:
+        module = FakePdfplumber([RecordingPage("张三")])
+        stream = BytesIO(b"%PDF-fake")
+
+        with mock.patch.dict(sys.modules, {"pdfplumber": module}):
+            blocks = blocks_from_pdf(stream)
+
+        # The upload route hands the parser a stream. Converting it with str()
+        # would pass pdfplumber a filename like "<_io.BytesIO object at 0x...>".
+        self.assertIs(module.opened_path, stream)
+        self.assertEqual([block.text for block in blocks], ["张三"])
 
 
 class DocxSourceTest(unittest.TestCase):

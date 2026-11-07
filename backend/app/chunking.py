@@ -17,7 +17,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 
 ChunkMode = Literal["single_pass", "map_reduce"]
 
@@ -272,8 +272,14 @@ def _strip_page_furniture(pages: Sequence[Sequence[str]]) -> list[list[str]]:
     return kept
 
 
-def blocks_from_pdf(path: str | Path) -> list[Block]:
-    """Extract blocks from a PDF resume.
+def _openable(source: str | Path | BinaryIO) -> str | BinaryIO:
+    """pdfplumber and python-docx accept a path or a binary stream alike."""
+
+    return source if hasattr(source, "read") else str(source)
+
+
+def blocks_from_pdf(source: str | Path | BinaryIO) -> list[Block]:
+    """Extract blocks from a PDF resume given as a path or a binary stream.
 
     Expects ``pdfplumber``; imported lazily so the rest of the app runs without
     it. Two-column layouts are handled by splitting each row on wide gaps, not
@@ -286,7 +292,7 @@ def blocks_from_pdf(path: str | Path) -> list[Block]:
         raise RuntimeError("PDF input needs pdfplumber: pip install pdfplumber") from exc
 
     pages: list[list[str]] = []
-    with pdfplumber.open(str(path)) as pdf:
+    with pdfplumber.open(_openable(source)) as pdf:
         for page in pdf.pages:
             pages.append(_page_cells(page))
 
@@ -306,7 +312,7 @@ def blocks_from_pages(pages: Sequence[Sequence[str]]) -> list[Block]:
     return _assemble((("text", cell) for cell in cells), source="resume", prefix="res")
 
 
-def blocks_from_docx(path: str | Path) -> list[Block]:
+def blocks_from_docx(source: str | Path | BinaryIO) -> list[Block]:
     """Extract blocks from a DOCX resume, trusting Word's heading styles."""
 
     try:
@@ -316,7 +322,7 @@ def blocks_from_docx(path: str | Path) -> list[Block]:
             "DOCX input needs python-docx: pip install python-docx"
         ) from exc
 
-    document = Document(str(path))
+    document = Document(_openable(source))
     entries: list[tuple[str, str]] = []
     for paragraph in document.paragraphs:
         text = paragraph.text.strip()

@@ -30,11 +30,13 @@ python -m venv .venv
 | `GET /api/v1/job-fit`、`GET /api/v1/job-fit/{request_id}` | 查看分析历史或单次分析。 |
 | `POST /api/v1/users`、`GET /api/v1/users/{user_id}` | 创建和查询用户；重复邮箱返回 `409`。 |
 | `POST /api/v1/profiles`、`GET /api/v1/profiles/{profile_id}` | 创建和查询包含求职要求、能力画像的用户档案。 |
+| `POST /api/v1/profiles/extract` | 提交简历纯文本，解析成 chunk 后让模型抽取画像草稿；返回证据引用与 degraded 标记，不落库。 |
+| `POST /api/v1/profiles/extract/file` | 上传 PDF/DOCX 简历文件（请求体为文件字节，`filename` 查询参数决定解析器），响应与 `/profiles/extract` 相同。 |
 | `POST /api/v1/resumes`、`GET /api/v1/resumes/{resume_id}` | 保存和查询来源类型及内容结构化的简历记录。 |
 | `POST /api/v1/jobs`、`GET /api/v1/jobs`、`GET /api/v1/jobs/{job_id}` | 创建和查询岗位；列表支持 `employment_type` 筛选。 |
 | `POST /api/v1/job-matches`、`GET /api/v1/job-matches/{match_id}` | 创建和查询匹配结果；创建前会按岗位类型、地点、薪资等硬约束过滤。 |
 
-资源接口对不存在的 ID 返回 `404`；岗位不满足硬约束时，`POST /api/v1/job-matches` 返回 `422`，其中包含 `rejections` 和 `unknowns`。
+资源接口对不存在的 ID 返回 `404`；岗位不满足硬约束时，`POST /api/v1/job-matches` 返回 `422`，其中包含 `rejections` 和 `unknowns`。上传抽取接口对不支持的文件类型返回 `415`、空文件返回 `400`、超过 20MB 返回 `413`、模型未配置返回 `503`。
 
 ## 测试
 
@@ -54,6 +56,8 @@ python -m unittest discover -s backend/tests -v
 ```
 
 该脚本支持 PDF、DOCX、TXT 和 Markdown 文件。
+
+API 侧的 `POST /api/v1/profiles/extract/file` 接收同样的 PDF/DOCX 简历文件：请求体是原始文件字节，`filename` 查询参数决定用哪个解析器，前端一次 `fetch` 即可上传；抽取结果与 `POST /api/v1/profiles/extract` 一致，不持久化。
 
 ## 后续计划
 

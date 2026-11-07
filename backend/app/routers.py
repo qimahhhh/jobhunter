@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from io import BytesIO
 import logging
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from .chunking import blocks_from_docx, blocks_from_pdf
 from .db import get_session
-from .extractor import extract_profile
+from .extractor import ExtractionResult, extract_profile, extract_profile_from_blocks
 from .llm import DeepSeekClient, LLMClient, LLMError
 from .orchestrator import JobFitOrchestrator, JobFitRunError
 from .schemas import (
@@ -168,6 +172,13 @@ def extract_profile_from_resume(data: ResumeExtractionRequest) -> ResumeExtracti
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     result = extract_profile(data.text, client, max_chunk_tokens=data.max_chunk_tokens)
+    return _extraction_response(result)
+
+
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+
+def _extraction_response(result: ExtractionResult) -> ResumeExtractionResponse:
     return ResumeExtractionResponse(
         profile=result.profile,
         evidence=result.evidence,
@@ -176,6 +187,81 @@ def extract_profile_from_resume(data: ResumeExtractionRequest) -> ResumeExtracti
         degraded=result.degraded,
         notes=result.notes,
     )
+
+
+async def _read_upload(request: Request) -> bytes:
+    """Read the request body, refusing anything past the size limit early."""
+
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"简历文件不能超过 {_MAX_UPLOAD_BYTES // (1024 * 1024)}MB",
+            )
+    return bytes(body)
+
+
+@router.post(
+    "/profiles/extract/file",
+    response_model=ResumeExtractionResponse,
+    responses={
+        400: {"description": "the uploaded file cannot be parsed"},
+        413: {"description": "the uploaded file is too large"},
+        415: {"description": "only .pdf and .docx resumes are supported"},
+        503: {"description": "model client is not configured"},
+    },
+)
+async def extract_profile_from_upload(
+    request: Request,
+    filename: str = Query(min_length=1),
+    max_chunk_tokens: int = Query(default=900, ge=50, le=4000),
+) -> ResumeExtractionResponse:
+    """Parse an uploaded resume and let the model draft a profile from it.
+
+    The body is the raw file bytes and ``filename`` carries the extension that
+    picks the parser, so a client uploads with one ``fetch`` and the server
+    needs no multipart support. Same contract as ``POST /profiles/extract``:
+    nothing is persisted, and the draft comes back with the chunk ids it cited
+    so a human (or the frontend) can check it before saving through
+    ``POST /profiles``.
+    """
+
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".pdf":
+        parse = blocks_from_pdf
+    elif suffix == ".docx":
+        parse = blocks_from_docx
+    else:
+        raise HTTPException(
+            status_code=415,
+            detail=f"只支持 .pdf / .docx 简历文件，收到：{filename}",
+        )
+
+    content = await _read_upload(request)
+    if not content:
+        raise HTTPException(status_code=400, detail="简历文件是空的")
+
+    try:
+        blocks = await run_in_threadpool(parse, BytesIO(content))
+    except RuntimeError as exc:  # the optional parser dependency is missing
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"简历文件解析失败：{exc}") from exc
+
+    try:
+        client = _client()
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # Parsing a PDF and one model turn are both blocking calls. The route is
+    # async only because streaming the body is, so hand them to the thread
+    # pool: otherwise one 5s extraction stalls every other request on the loop.
+    result = await run_in_threadpool(
+        extract_profile_from_blocks, blocks, client, max_chunk_tokens=max_chunk_tokens
+    )
+    return _extraction_response(result)
 
 
 @router.post("/resumes", response_model=ResumeRead, status_code=201)
