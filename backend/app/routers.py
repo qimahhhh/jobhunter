@@ -11,21 +11,9 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from .chunking import (
-    Block,
-    Chunk,
-    blocks_from_docx,
-    blocks_from_mapping,
-    blocks_from_pdf,
-    blocks_from_text,
-    chunk_blocks,
-    merge_blocks,
-)
+from .chunking import blocks_from_docx, blocks_from_pdf
 from .db import get_session
-from .extractor import (
-    ExtractionResult,
-    extract_profile_from_chunks,
-)
+from .extraction_service import ResumeExtractionService
 from .llm import DeepSeekClient, LLMClient, LLMError
 from .orchestrator import JobFitOrchestrator, JobFitRunError
 from .schemas import (
@@ -102,6 +90,15 @@ def _client() -> LLMClient:
     if _llm_client is None:
         _llm_client = DeepSeekClient()
     return _llm_client
+
+
+def _llm_or_503() -> LLMClient:
+    """A client, or the 503 that says this deployment has no key."""
+
+    try:
+        return _client()
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def _session(session: Session = Depends(get_session)) -> Session:
@@ -197,83 +194,11 @@ def extract_profile_from_resume(
     chunks as a resume record, which is what makes those ids resolvable later.
     """
 
-    chunks = chunk_blocks(
-        merge_blocks(blocks_from_text(data.text)), max_tokens=data.max_chunk_tokens
-    )
-    resume_id = _persist_chunks(
-        session,
-        user_id=data.user_id,
-        source_type="text",
-        source_name="pasted-resume",
-        chunks=chunks,
-    )
-
-    try:
-        client = _client()
-    except LLMError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    result = extract_profile_from_chunks(chunks, client)
-    return _extraction_response(result, resume_id)
+    service = ResumeExtractionService(session, _llm_or_503())
+    return _or_404(lambda: service.from_text(data))
 
 
 _MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-
-
-def _extraction_response(
-    result: ExtractionResult, resume_id: str | None = None
-) -> ResumeExtractionResponse:
-    return ResumeExtractionResponse(
-        profile=result.profile,
-        recommended_roles=result.recommended_roles,
-        missing_information=result.missing_information,
-        evidence=result.evidence,
-        unresolved_evidence=result.unresolved,
-        chunk_ids=result.chunk_ids,
-        degraded=result.degraded,
-        resume_id=resume_id,
-        notes=result.notes,
-    )
-
-
-def _persist_chunks(
-    session: Session,
-    *,
-    user_id: str | None,
-    source_type: str,
-    source_name: str,
-    chunks: list[Chunk],
-) -> str | None:
-    """Store the parsed chunks when the caller identifies a user.
-
-    A chunk id means nothing once the response is gone, so this record is what
-    lets a confirmed profile point back at the paragraph a claim came from.
-    Without ``user_id`` the endpoint stays stateless, which is what the demo
-    flow relies on before a user exists.
-    """
-
-    if not user_id:
-        return None
-
-    payload = ResumeCreate(
-        user_id=user_id,
-        source_type=source_type,
-        source_name=source_name,
-        content={
-            "chunks": [
-                {
-                    "id": chunk.chunk_id,
-                    "source": chunk.source,
-                    "section": chunk.section,
-                    "text": chunk.text,
-                    "tokens": chunk.tokens,
-                }
-                for chunk in chunks
-            ],
-            "chunk_count": len(chunks),
-        },
-    )
-    return _or_404(lambda: create_resume(session, payload)).id
 
 
 async def _read_upload(request: Request) -> bytes:
@@ -344,26 +269,24 @@ async def extract_profile_from_upload(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"简历文件解析失败：{exc}") from exc
 
-    chunks = chunk_blocks(merge_blocks(blocks), max_tokens=max_chunk_tokens)
-    resume_id = await run_in_threadpool(
-        _persist_chunks,
-        session,
-        user_id=user_id,
-        source_type=suffix.lstrip("."),
-        source_name=filename,
-        chunks=chunks,
-    )
+    service = ResumeExtractionService(session, _llm_or_503())
 
+    # The chunk writes and one model turn are both blocking. The route is async
+    # only because the body is streamed, so the whole use case goes to the
+    # thread pool: otherwise one 5s extraction stalls every other request.
     try:
-        client = _client()
-    except LLMError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    # Parsing a PDF and one model turn are both blocking calls. The route is
-    # async only because streaming the body is, so hand them to the thread
-    # pool: otherwise one 5s extraction stalls every other request on the loop.
-    result = await run_in_threadpool(extract_profile_from_chunks, chunks, client)
-    return _extraction_response(result, resume_id)
+        return await run_in_threadpool(
+            service.from_blocks,
+            blocks,
+            user_id=user_id,
+            source_type=suffix.lstrip("."),
+            source_name=filename,
+            max_chunk_tokens=max_chunk_tokens,
+        )
+    except NotFoundError as exc:
+        # The user was resolved before the body was read; this covers the case
+        # where the row disappears while a large upload is in flight.
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post(
@@ -386,39 +309,8 @@ def extract_profile_from_bundle(
     into the draft.
     """
 
-    groups: list[list[Block]] = []
-    if data.resume_text and data.resume_text.strip():
-        groups.append(blocks_from_text(data.resume_text, source="resume"))
-    if data.self_description and data.self_description.strip():
-        groups.append(
-            blocks_from_text(data.self_description, source="self_description")
-        )
-    if data.projects:
-        # A list of project entries is wrapped so each one keeps its own block
-        # instead of being flattened into a single string.
-        payload = (
-            {"projects": data.projects}
-            if isinstance(data.projects, list)
-            else data.projects
-        )
-        groups.append(blocks_from_mapping(payload, source="project"))
-
-    chunks = chunk_blocks(merge_blocks(*groups), max_tokens=data.max_chunk_tokens)
-    resume_id = _persist_chunks(
-        session,
-        user_id=data.user_id,
-        source_type="text",
-        source_name="bundle",
-        chunks=chunks,
-    )
-
-    try:
-        client = _client()
-    except LLMError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    result = extract_profile_from_chunks(chunks, client)
-    return _extraction_response(result, resume_id)
+    service = ResumeExtractionService(session, _llm_or_503())
+    return _or_404(lambda: service.from_bundle(data))
 
 
 @router.post(
@@ -500,12 +392,9 @@ def draft_base_resume(
             blocks_from_stored_chunks((source.content or {}).get("chunks", []))
         )
 
-    try:
-        client = _client()
-    except LLMError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    result = draft_resume(blocks, client, max_chunk_tokens=data.max_chunk_tokens)
+    result = draft_resume(
+        blocks, _llm_or_503(), max_chunk_tokens=data.max_chunk_tokens
+    )
     content = result.content or ResumeDraftContent()
     return ResumeDraftResponse(
         profile_id=profile.id,
