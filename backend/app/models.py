@@ -71,9 +71,18 @@ class Job(Base):
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     salary_min: Mapped[int | None] = mapped_column(nullable=True)
     salary_max: Mapped[int | None] = mapped_column(nullable=True)
+    salary_period: Mapped[str | None] = mapped_column(String(16), nullable=True)
     source_name: Mapped[str] = mapped_column(String(255))
     source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    verification_status: Mapped[str] = mapped_column(String(32), default="needs_review")
+    verification_status: Mapped[str] = mapped_column(
+        String(32), default="pending_verification"
+    )
+    collected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now
+    )
+    last_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
@@ -95,6 +104,7 @@ class JobMatch(Base):
     gaps: Mapped[list[str]] = mapped_column(JSON, default=list)
     recommendation: Mapped[str] = mapped_column(Text)
     confidence: Mapped[float] = mapped_column(Float)
+    unknowns: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

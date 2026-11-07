@@ -91,7 +91,7 @@ class ResourceModelsTest(unittest.TestCase):
         self.assertEqual(match.gaps, [])
         self.assertTrue(match.recommendation)
         self.assertEqual(resume.version, 1)
-        self.assertEqual(job.verification_status, "source_attached")
+        self.assertEqual(job.verification_status, "pending_verification")
         self.assertEqual(UserRead.model_validate(user).email, "student@example.com")
         self.assertEqual(JobMatchRead.model_validate(match).score, 1.0)
 

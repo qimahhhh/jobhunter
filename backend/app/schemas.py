@@ -6,6 +6,14 @@ from pydantic import BaseModel, Field
 
 
 EmploymentType = Literal["internship", "part_time", "full_time", "contract"]
+SalaryPeriod = Literal["day", "month", "year"]
+JobStatus = Literal[
+    "active",
+    "expired",
+    "pending_verification",
+    "source_unavailable",
+    "unknown",
+]
 
 
 class ProfileInput(BaseModel):
@@ -30,7 +38,7 @@ class JobFitRequest(BaseModel):
 
 
 class JobVerification(BaseModel):
-    status: str
+    status: JobStatus
     checks: dict[str, bool]
     source_name: str
     source_url: str | None

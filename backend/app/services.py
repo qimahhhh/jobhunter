@@ -6,7 +6,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .agents import CareerAnalystAgent
-from .models import Job, JobFitAnalysis, JobMatch, Resume, User, UserProfile
+from .filters import FilterOutcome, hard_filter
+from .models import (
+    Job,
+    JobFitAnalysis,
+    JobMatch,
+    Resume,
+    User,
+    UserProfile,
+    utc_now,
+)
 from .schemas import (
     EmploymentType,
     JobFitRequest,
@@ -21,6 +30,7 @@ from .schemas_resources import (
     ProfileCreate,
     ResumeCreate,
     UserCreate,
+    UserRequirements,
 )
 
 
@@ -32,22 +42,24 @@ class ConflictError(ValueError):
     pass
 
 
+class ConstraintRejectedError(ValueError):
+    """Raised when a job fails the deterministic hard constraints."""
+
+    def __init__(self, outcome: FilterOutcome) -> None:
+        self.outcome = outcome
+        super().__init__("; ".join(outcome.rejections))
+
+
 def _id() -> str:
     return uuid.uuid4().hex
 
 
 def _job_input_to_job(data: JobInput, *, id: str) -> Job:
-    values = data.model_dump()
-    location = values.pop("location", None)
-    salary_min = values.pop("salary_min", None)
-    salary_max = values.pop("salary_max", None)
     return Job(
         id=id,
-        **values,
-        location=location,
-        salary_min=salary_min,
-        salary_max=salary_max,
-        verification_status="source_attached" if data.source_url else "needs_review",
+        **data.model_dump(),
+        verification_status="pending_verification",
+        collected_at=utc_now(),
     )
 
 
@@ -57,6 +69,7 @@ def _fit_report_to_job_match(
     id: str,
     user_profile_id: str,
     job_id: str,
+    unknowns: list[str] | None = None,
 ) -> JobMatch:
     return JobMatch(
         id=id,
@@ -67,6 +80,7 @@ def _fit_report_to_job_match(
         gaps=report.gaps,
         recommendation=report.recommendation,
         confidence=report.confidence,
+        unknowns=list(unknowns or []),
     )
 
 
@@ -154,8 +168,12 @@ def list_jobs(
 def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
     profile = get_profile(session, data.user_profile_id)
     job = get_job(session, data.job_id)
-    if job.employment_type is None:
-        raise ValueError("job employment_type is unknown")
+
+    requirements = UserRequirements.model_validate(profile.requirements)
+    outcome = hard_filter(job, requirements)
+    if not outcome.passed:
+        raise ConstraintRejectedError(outcome)
+
     capabilities = profile.capabilities
     report = CareerAnalystAgent().run(
         ProfileInput(
@@ -168,7 +186,9 @@ def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
             company=job.company,
             description=job.description,
             requirements=job.requirements,
-            employment_type=job.employment_type,
+            # A job row may predate the employment_type column; fall back to the
+            # expectation so the keyword analysis can still run.
+            employment_type=job.employment_type or requirements.employment_type,
             source_name=job.source_name,
             source_url=job.source_url,
         ),
@@ -178,6 +198,7 @@ def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
         id=_id(),
         user_profile_id=data.user_profile_id,
         job_id=data.job_id,
+        unknowns=outcome.unknowns,
     )
     session.add(match)
     session.commit()

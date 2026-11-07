@@ -253,6 +253,39 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(invalid_filter_response.status, 422)
 
+    async def test_job_match_rejects_jobs_failing_hard_constraints(self) -> None:
+        profile_id = await self._create_profile()
+        job_response = await _request(
+            "POST",
+            "/api/v1/jobs",
+            _job_payload(employment_type="full_time"),
+        )
+        self.assertEqual(job_response.status, 201)
+
+        rejected_response = await _request(
+            "POST",
+            "/api/v1/job-matches",
+            {
+                "user_profile_id": profile_id,
+                "job_id": job_response.json()["id"],
+            },
+        )
+
+        self.assertEqual(rejected_response.status, 422)
+        detail = rejected_response.json()["detail"]
+        self.assertEqual(detail["message"], "hard constraints not met")
+        self.assertTrue(detail["rejections"])
+        self.assertIn("正式", detail["rejections"][0])
+
+    async def test_job_status_is_pending_verification_after_creation(self) -> None:
+        response = await _request("POST", "/api/v1/jobs", _job_payload())
+
+        self.assertEqual(response.status, 201)
+        job = response.json()
+        self.assertEqual(job["verification_status"], "pending_verification")
+        self.assertIsNotNone(job["collected_at"])
+        self.assertIsNone(job["last_verified_at"])
+
 
 if __name__ == "__main__":
     unittest.main()

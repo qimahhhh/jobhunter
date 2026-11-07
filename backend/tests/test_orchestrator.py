@@ -44,7 +44,7 @@ class JobFitOrchestratorTest(unittest.TestCase):
     def test_runs_all_stages_and_returns_traceable_report(self) -> None:
         response = JobFitOrchestrator().run(make_request())
 
-        self.assertEqual(response.job.status, "source_attached")
+        self.assertEqual(response.job.status, "pending_verification")
         self.assertGreaterEqual(len(response.fit_report.match_points), 1)
         self.assertGreaterEqual(len(response.resume_suggestions), 1)
         self.assertEqual(len(response.interview_questions), 3)

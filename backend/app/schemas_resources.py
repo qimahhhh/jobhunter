@@ -10,7 +10,9 @@ from .schemas import (
     JobFitRequest,
     JobFitResponse,
     JobInput,
+    JobStatus,
     MatchResult,
+    SalaryPeriod,
 )
 
 
@@ -33,6 +35,7 @@ class UserRequirements(BaseModel):
     employment_type: EmploymentType = "internship"
     salary_min: int | None = None
     salary_max: int | None = None
+    salary_period: SalaryPeriod = "month"
     skill_level: str | None = None
 
 
@@ -87,6 +90,7 @@ class JobCreate(JobInput):
     location: str | None = None
     salary_min: int | None = None
     salary_max: int | None = None
+    salary_period: SalaryPeriod | None = None
 
 
 class JobRead(JobCreate):
@@ -94,7 +98,9 @@ class JobRead(JobCreate):
 
     employment_type: EmploymentType | None = None
     id: str
-    verification_status: str
+    verification_status: JobStatus
+    collected_at: datetime
+    last_verified_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -123,6 +129,7 @@ class JobMatchRead(JobMatchCreate, MatchResult):
     gaps: list[str]
     recommendation: str
     confidence: float
+    unknowns: list[str] = Field(default_factory=list)
     created_at: datetime
 
 

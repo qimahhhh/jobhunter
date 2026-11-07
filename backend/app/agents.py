@@ -29,7 +29,7 @@ class JobVerifierAgent:
             "has_source_url": bool(job.source_url and job.source_url.strip()),
         }
         return JobVerification(
-            status="source_attached" if checks["has_source_url"] else "needs_review",
+            status="pending_verification" if checks["has_source_url"] else "unknown",
             checks=checks,
             source_name=job.source_name,
             source_url=job.source_url,

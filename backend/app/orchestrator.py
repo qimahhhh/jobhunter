@@ -117,9 +117,13 @@ class JobFitOrchestrator:
         )
 
         warnings: list[str] = []
-        if verification.status == "needs_review":
+        if verification.status == "unknown":
             warnings.append(
-                "The job has no source URL; verify it manually before a real application decision."
+                "No source URL was provided; this posting cannot be verified before applying."
+            )
+        elif verification.status == "pending_verification":
+            warnings.append(
+                "A source URL is attached but the posting has not been verified yet."
             )
         if not request.profile.experiences:
             warnings.append("No experience was provided; analysis uses only summary and skills.")

@@ -31,6 +31,7 @@ from .schemas_resources import (
 )
 from .services import (
     ConflictError,
+    ConstraintRejectedError,
     NotFoundError,
     create_job,
     create_job_fit_analysis,
@@ -155,7 +156,18 @@ def read_job(job_id: str, session: Session = Depends(_session)) -> JobRead:
 
 @router.post("/job-matches", response_model=JobMatchRead, status_code=201)
 def add_job_match(data: JobMatchCreate, session: Session = Depends(_session)) -> JobMatchRead:
-    return JobMatchRead.model_validate(create_job_match(session, data))
+    try:
+        match = create_job_match(session, data)
+    except ConstraintRejectedError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "hard constraints not met",
+                "rejections": exc.outcome.rejections,
+                "unknowns": exc.outcome.unknowns,
+            },
+        ) from exc
+    return JobMatchRead.model_validate(match)
 
 
 @router.get("/job-matches/{match_id}", response_model=JobMatchRead)
