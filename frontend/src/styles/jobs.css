@@ -1,0 +1,411 @@
+/* ---------- 岗位列表 ---------- */
+.cond {
+  margin-top: 22px;
+  width: 800px;
+  max-width: calc(100% - 360px);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.cond .c {
+  border: 1px solid #e2e6ec;
+  border-radius: 20px;
+  padding: 7px 13px;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: #3d444b;
+}
+
+.cond-edit {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: 500 10.5px/1 var(--font-body);
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+}
+
+.cond-edit:hover {
+  color: var(--ink);
+}
+
+.cond-form {
+  margin-top: 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: #fafbfd;
+}
+
+.cond-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.cond-form input,
+.cond-form select {
+  height: 36px;
+  min-width: 140px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: #fff;
+  padding: 0 10px;
+  font: 400 12px/1 var(--font-body);
+  color: var(--ink);
+  outline: none;
+}
+
+.cond-form input:focus,
+.cond-form select:focus {
+  border-color: var(--ink);
+}
+
+.fbar {
+  margin-top: 18px;
+  width: 800px;
+  max-width: calc(100% - 360px);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font: 400 10.5px/1 var(--font-body);
+  letter-spacing: 0.1em;
+  color: var(--ink-4);
+}
+
+.fbar b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.fbar .sort {
+  margin-left: auto;
+  display: flex;
+  gap: 16px;
+}
+
+.fbar .sort u {
+  text-decoration: none;
+  color: var(--ink);
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 2px;
+}
+
+.jlist {
+  margin-top: 6px;
+  width: 800px;
+  max-width: calc(100% - 360px);
+}
+
+.jrow {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 15px 0;
+  border-bottom: 1px solid #f0f2f6;
+  cursor: pointer;
+  transition: background var(--dur-1) ease;
+}
+
+.jrow:hover {
+  background: #fafbfd;
+}
+
+.jrow h4 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.jmain {
+  min-width: 0;
+}
+
+.jsub {
+  margin-top: 7px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+.jsrc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.dot.ok {
+  background: var(--ok);
+}
+
+.dot.pending {
+  background: #b9bfc6;
+}
+
+.dot.dead {
+  background: var(--warn);
+}
+
+.score {
+  margin-left: auto;
+  text-align: right;
+}
+
+.score b {
+  display: block;
+  font: 600 22px/1 var(--font-display);
+}
+
+.score span {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--ink-4);
+}
+
+.pager {
+  margin-top: 22px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 400 11px/1 var(--font-body);
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+.pager span {
+  min-width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.pager span.on {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pager .next-page {
+  margin-left: 8px;
+}
+
+/* ---------- 岗位详情 ---------- */
+.jhead {
+  margin-top: 22px;
+}
+
+.jhead h2 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.jhead-sub {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+.jhead-sub b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.krow {
+  margin-top: 22px;
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.k {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 10px 13px;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: #3d444b;
+}
+
+.k i {
+  font-style: normal;
+  font-size: 10px;
+}
+
+.k.ok i {
+  color: var(--ok);
+}
+
+.k.no {
+  border-color: #f0ddd6;
+}
+
+.k.no i {
+  color: var(--danger);
+}
+
+.cols {
+  margin-top: 30px;
+  display: flex;
+  gap: 22px;
+  width: 800px;
+  max-width: calc(100% - 360px);
+}
+
+.col {
+  flex: 1;
+  min-width: 0;
+}
+
+.col h5 {
+  margin: 0 0 8px;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.col ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.col li {
+  display: flex;
+  gap: 7px;
+  padding: 9px 0;
+  border-bottom: 1px solid #f0f2f6;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #3d444b;
+}
+
+.col li em {
+  font-style: normal;
+  color: var(--ink-4);
+  flex: 0 0 auto;
+}
+
+.col.miss li {
+  color: var(--ink-3);
+}
+
+.next {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  width: 800px;
+  max-width: calc(100% - 360px);
+}
+
+.next .cap {
+  font: 500 9.5px/1 var(--font-mono);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.next ul {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  gap: 26px;
+}
+
+.next li {
+  max-width: 230px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #3d444b;
+}
+
+.next li b {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.jfoot {
+  margin-top: auto;
+  padding-top: 26px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* 分数条 */
+.bars {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.bar {
+  margin-bottom: 13px;
+}
+
+.bar .lb {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.bar .tr {
+  height: 2px;
+  margin-top: 6px;
+  background: #eceef2;
+}
+
+.bar .tr i {
+  display: block;
+  height: 2px;
+  background: var(--ink);
+  transition: width var(--dur-3) var(--ease);
+}

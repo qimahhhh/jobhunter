@@ -1,0 +1,143 @@
+.arch {
+  margin-top: 26px;
+  width: 800px;
+  max-width: calc(100% - 360px);
+}
+
+.big {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.big b {
+  font: 600 62px/1 var(--font-display);
+  letter-spacing: -0.03em;
+}
+
+.big span {
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--ink-4);
+}
+
+.big em {
+  margin-left: 16px;
+  font-style: normal;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
+}
+
+.seg {
+  display: flex;
+  gap: 4px;
+  margin-top: 18px;
+}
+
+.seg i {
+  flex: 1;
+  height: 6px;
+  background: #eceef2;
+  transition: background var(--dur-3) ease;
+}
+
+.seg i.on {
+  background: var(--ink);
+}
+
+.note-bar {
+  margin-top: 22px;
+  padding: 12px 14px;
+  background: #f7f8fa;
+  border-left: 2px solid var(--ink);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+.sect {
+  margin-top: 30px;
+  font: 500 9.5px/1 var(--font-mono);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.arow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 0;
+  border-bottom: 1px solid #f0f2f6;
+  margin-top: 6px;
+}
+
+.arow .nm {
+  width: 64px;
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.arow .st {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+}
+
+.arow .st.ok {
+  color: var(--ok);
+}
+
+.arow .act {
+  margin-left: auto;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.tag {
+  border: 1px solid #e2e6ec;
+  border-radius: 20px;
+  padding: 6px 12px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #3d444b;
+}
+
+.tag.dim {
+  color: #b9bfc6;
+  border-style: dashed;
+}
+
+.gap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid #f0f2f6;
+  font-size: 11.5px;
+  color: #3d444b;
+}
+
+.gap em {
+  font-style: normal;
+  min-width: 56px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--danger);
+}
+
+.gap .act {
+  margin-left: auto;
+}
+
+.gap span {
+  flex: 1;
+  min-width: 0;
+}

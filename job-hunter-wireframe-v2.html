@@ -1,0 +1,1523 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JobHunter · 线稿 v2（开场动画 + 主页）</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+
+  /* ============================================================
+     设计令牌 · Design Tokens
+     与视觉方案无关的量（节奏、圆角、动效、字号）放这里；
+     颜色放在 .wf 里，因为线稿只有一套灰阶。
+     ============================================================ */
+  :root{
+    /* 版式节奏 */
+    --card-w:322px;
+    --card-h:304px;
+    --card-gap:32px;
+    --card-r:16px;
+    --top-gap:360px;      /* 欢迎语基线到三板块的距离 */
+    /* 字号 */
+    --fs-hero:108px;
+    --fs-hero-settled:91px;
+    --fs-h3:20px;
+    --fs-body:12px;
+    --fs-label:10.5px;
+    /* 动效 */
+    --dur-fast:.22s;
+    --dur-base:.3s;
+    --dur-slow:.8s;
+    --ease-out:cubic-bezier(.2,.7,.3,1);
+    /* 标注用强调色（只在标注与焦点环上出现） */
+    --brand:#2559d8;
+  }
+
+  body{
+    background:#0d0e10;color:#ececea;
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ================= 预览外壳 ================= */
+  .topbar-ui{
+    position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+    padding:12px 26px;background:#0d0e10;border-bottom:1px solid #212327;
+  }
+  .tb-title{font:600 11px/1 "Segoe UI";letter-spacing:.22em;text-transform:uppercase}
+  .tb-sub{font:400 11px/1 "Segoe UI";letter-spacing:.06em;color:#8b9199}   /* 原 #6d7178，暗底 4.3:1 → 5.9:1 */
+  .tb-tabs{display:flex;gap:5px;margin-left:auto}
+  .tb-tabs button{
+    appearance:none;border:1px solid #2a2d31;background:#15171a;color:#9aa0a7;cursor:pointer;
+    font:500 11px/1 "Segoe UI";letter-spacing:.1em;padding:8px 12px;border-radius:4px;
+  }
+  .tb-tabs button:hover{color:#fff;border-color:#3d4248}
+
+  #stage{--s:1;display:flex;flex-direction:column;align-items:center;gap:30px;padding:26px 0 70px}
+  .board{display:flex;flex-direction:column;gap:12px}
+  .board-head{display:flex;align-items:center;gap:14px;min-height:22px}
+  .board-head .no{
+    font:600 10px/1 Consolas,monospace;letter-spacing:.18em;color:#0d0e10;
+    background:#ececea;padding:5px 7px;border-radius:3px;
+  }
+  .board-head .nm{font:400 11px/1 "Segoe UI";letter-spacing:.16em;color:#9aa0a7;text-transform:uppercase}
+  .board-head .sp{margin-left:auto;display:flex;gap:6px}
+  .board-head .sp button{
+    appearance:none;border:1px solid #2a2d31;background:#15171a;color:#9aa0a7;cursor:pointer;
+    font:500 10.5px/1 "Segoe UI";letter-spacing:.08em;padding:6px 10px;border-radius:4px;
+  }
+  .board-head .sp button.on{background:#ececea;color:#111;border-color:#ececea}
+  .board-head .sp button:hover{color:#fff;border-color:#3d4248}
+
+  .frame{width:1440px;height:900px;zoom:var(--s);box-shadow:0 30px 80px -40px rgba(0,0,0,.9);position:relative}
+  .notes{
+    width:1440px;zoom:var(--s);
+    display:grid;grid-template-columns:repeat(3,1fr);gap:10px 30px;
+    font:400 11px/1.78 "Segoe UI";color:#8b9199;letter-spacing:.02em;
+  }
+  .notes b{color:#cfd4da;font-weight:600}
+  .notes i{font-style:normal;color:#5d646b;font-family:Consolas,monospace}
+
+  body.shot .topbar-ui,body.shot .board-head,body.shot .notes{display:none}
+  body.shot #stage{padding:0;gap:0}
+  body.shot .frame{box-shadow:none}
+
+  /* ================= 线稿画板 ================= */
+  .wf{
+    --ink:#141414;
+    --ink-2:#5d646b;
+    --ink-3:#6a7278;   /* 原 #8f979e：2.9:1 → 4.9:1（AA） */
+    --ink-4:#8a9198;   /* 仅用于图形线条：原 #9aa1a8，2.6:1 → 3.1:1 */
+    --hair:#c2c8ce;
+    --grid:#f2f4f6;
+    /* 功能卡片：回到改色之前的白底黑框 */
+    --card-bg:#ffffff;
+    --card-line:#141414;
+    --card-ink:#141414;
+    position:relative;width:1440px;height:900px;overflow:hidden;background:#fff;color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+  }
+  .wf .grid{
+    position:absolute;inset:0;z-index:0;pointer-events:none;
+    background-image:linear-gradient(to right,rgba(20,20,20,.055) 1px,transparent 1px);
+    background-size:331px 100%;background-position:58px 0;
+  }
+  .wf .axis{display:none}
+
+  /* 四角定位角标 */
+  .ticks{
+    position:absolute;inset:26px;z-index:1;pointer-events:none;opacity:.55;
+    background:
+      linear-gradient(#141414,#141414) left top/16px 1px no-repeat,
+      linear-gradient(#141414,#141414) left top/1px 16px no-repeat,
+      linear-gradient(#141414,#141414) right top/16px 1px no-repeat,
+      linear-gradient(#141414,#141414) right top/1px 16px no-repeat,
+      linear-gradient(#141414,#141414) left bottom/16px 1px no-repeat,
+      linear-gradient(#141414,#141414) left bottom/1px 16px no-repeat,
+      linear-gradient(#141414,#141414) right bottom/16px 1px no-repeat,
+      linear-gradient(#141414,#141414) right bottom/1px 16px no-repeat;
+  }
+  .wf > .layer{position:relative;z-index:2}
+
+  /* 通用线稿零件 */
+  .ph{border:1px dashed #c2c8ce;background:#fbfcfd}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+       border:1.4px solid #141414;border-radius:3px;font-size:12px;letter-spacing:.14em;color:#141414}
+  .badge{
+    position:absolute;z-index:9;width:21px;height:21px;border-radius:50%;background:var(--brand);color:#fff;
+    font:600 11px/21px "Segoe UI";text-align:center;box-shadow:0 0 0 3px rgba(37,89,216,.14);
+  }
+  .lead{position:absolute;z-index:8;border-top:1px dashed #b9cdf3;transform-origin:left top}
+
+  /* ================= 画板 01 / 02：开场 ================= */
+  .intro-title{
+    position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+    text-align:center;font-family:"Bahnschrift","Segoe UI",sans-serif;
+    font-size:108px;font-weight:600;letter-spacing:-.035em;line-height:1;
+  }
+  .intro-title .out{color:transparent;-webkit-text-stroke:1.3px #141414}
+  .intro-title .dot{color:#b9bec4}
+  .corner{position:absolute;z-index:3}
+  .corner.tl{left:58px;top:42px;display:flex;align-items:center}
+  .corner.tl .logo{font:700 24px/1 "Segoe UI";letter-spacing:-.04em;color:#141414}
+
+  /* ============================================================
+     右上角 · 用户（无折角特效）
+     未登录：头像 + 「登录」；已登录：头像 + 姓名，始终可见
+     ============================================================ */
+  .user{position:absolute;top:0;right:0;width:250px;height:150px;z-index:5}
+  .u-login{
+    position:absolute;right:126px;top:47px;z-index:1;
+    font-size:12.5px;letter-spacing:.14em;color:#4a5157;
+  }
+  .u-nm{
+    position:absolute;right:100px;top:40px;z-index:1;white-space:nowrap;
+    font-size:22px;font-weight:600;letter-spacing:.16em;color:var(--ink);
+  }
+  .u-ava{
+    position:absolute;right:30px;top:30px;width:46px;height:46px;border-radius:50%;
+    border:1.2px solid var(--ink-3);background:#fff;color:var(--ink-3);
+    display:grid;place-items:center;z-index:1;
+  }
+
+  /* 已登录 / 已上传才显示姓名；未登录显示「登录」 */
+  #f3[data-state="guest"] .u-nm{display:none}
+  #f3[data-state="logged"] .u-login,
+  #f3[data-state="done"] .u-login{display:none}
+
+  .scroll-hint{
+    position:absolute;left:0;right:0;bottom:54px;display:flex;flex-direction:column;
+    align-items:center;gap:12px;color:#6d747b;
+  }
+  .scroll-hint .mouse{width:24px;height:38px;border:1.2px solid var(--ink-4);border-radius:12px;position:relative}
+  .scroll-hint .mouse::after{content:"";position:absolute;left:50%;top:8px;width:2px;height:7px;
+                             background:var(--ink-4);transform:translateX(-50%);border-radius:1px}
+  .scroll-hint .tx{font-size:11px;letter-spacing:.24em;text-transform:uppercase}
+
+  /* 开场 01 的动画 */
+  #f1 .corner,#f1 .scroll-hint,#f1 .user{opacity:0}
+  #f1.played .corner{animation:riseIn .8s cubic-bezier(.2,.7,.3,1) .7s both}
+  #f1.played .user{animation:riseIn .8s cubic-bezier(.2,.7,.3,1) .78s both}
+  #f1.played .scroll-hint{animation:riseIn .8s cubic-bezier(.2,.7,.3,1) 1.25s both}
+  #f1.played .intro-title{animation:titleSettle 1.9s cubic-bezier(.33,0,.2,1) both}
+  @keyframes riseIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  @keyframes titleSettle{
+    0%{opacity:0;transform:translateY(-50%) scale(1)}
+    30%{opacity:1;transform:translateY(-50%) scale(1)}
+    100%{opacity:1;transform:translateY(-50%) translateY(-96px) scale(.84)}
+  }
+  .play{
+    position:absolute;right:56px;bottom:52px;z-index:12;
+    display:flex;align-items:center;gap:9px;cursor:pointer;
+    border:1px solid #e0e4e8;background:#fff;color:#4a5157;
+    font:500 11px/1 "Segoe UI";letter-spacing:.12em;padding:11px 14px;border-radius:4px;
+  }
+  .play:hover{border-color:#141414;color:#141414}
+
+  /* ================= 画板 03：主页 ================= */
+  .main-head{position:absolute;left:58px;right:58px;top:40px;display:flex;align-items:flex-start;justify-content:space-between}
+  .main-head .tl{display:flex;align-items:center}
+  .main-head .tl .logo{font:700 22px/1 "Segoe UI";letter-spacing:-.04em}
+
+  .welcome{position:absolute;left:0;right:0;top:128px;text-align:center}
+  .welcome .ov{font:500 9.5px/1 "Consolas","Segoe UI",monospace;letter-spacing:.34em;text-transform:uppercase;color:#9aa0a7}
+  .welcome .h{margin:16px 0 0;font-family:"Bahnschrift","Segoe UI",sans-serif;
+              font-size:50px;font-weight:600;letter-spacing:-.035em;line-height:1.06;color:var(--ink)}
+  .welcome .h em{font-style:normal;color:transparent;-webkit-text-stroke:1.1px var(--ink)}
+  .welcome .s{
+    margin-top:18px;display:flex;align-items:center;justify-content:center;gap:16px;
+    font-size:9.5px;letter-spacing:.34em;text-transform:uppercase;color:#9aa0a7;
+  }
+  .welcome .s i{display:block;width:44px;height:1px;background:#d7dbe0}
+
+  /* 页脚信息条 */
+  .meta{
+    position:absolute;left:58px;right:58px;bottom:32px;z-index:3;
+    display:flex;justify-content:space-between;align-items:center;
+    padding-top:12px;border-top:1px solid #e7eaef;
+    font:500 9px/1 "Consolas","Segoe UI",monospace;letter-spacing:.26em;
+    text-transform:uppercase;color:#9aa0a7;
+  }
+
+  .blocks{position:absolute;left:0;right:0;top:var(--top-gap);display:flex;justify-content:center;gap:var(--card-gap)}
+  .blk{
+    width:var(--card-w);height:var(--card-h);padding:24px 24px 20px;display:flex;flex-direction:column;
+    border:1.3px solid var(--card-line);border-radius:var(--card-r);background:var(--card-bg);position:relative;
+    overflow:hidden;
+    transition:transform 180ms ease,box-shadow 180ms ease,border-color 180ms ease;
+    will-change:transform;
+  }
+  .blk .no{
+    font:500 10px/1 Consolas,monospace;letter-spacing:.16em;color:var(--ink-3);
+    padding-bottom:13px;border-bottom:1px solid #e7eaf0;
+  }
+  .blk .art{margin:14px 0 0;height:98px;display:flex;align-items:center;justify-content:center}
+  .blk .art svg{display:block;height:98px;width:auto}
+  .blk h3{margin:16px 0 0;font-size:20px;font-weight:600;letter-spacing:.18em;color:var(--card-ink)}
+  .blk p{margin:8px 0 0;font-size:12px;line-height:1.75;color:#6d747b}
+  .blk .go{margin-top:auto;font-size:10px;letter-spacing:.22em;color:var(--ink-3);transition:color var(--dur-fast) ease}
+  /* 右下角书页折角：默认只是角上一小片，悬停时掀开变大 */
+  .blk-fold{
+    position:absolute;right:0;bottom:0;width:104px;height:104px;z-index:2;
+    transform-origin:100% 100%;transform:scale(.32);
+    background:linear-gradient(135deg,#d3dbf2 0%,#e8edfa 46%,#fdfdff 100%);
+    clip-path:polygon(100% 100%,100% 0,0 100%);
+    filter:drop-shadow(-3px -3px 6px rgba(16,24,64,.13));
+    transition:transform 240ms ease;
+    pointer-events:none;
+  }
+  .blk:hover .blk-fold,.blk.hov .blk-fold{transform:scale(1)}
+
+  /* 悬停：上移 12px + 相邻交替微旋 0.8deg + 右下折角掀起放大 + 软投影。
+     只改 transform / box-shadow，卡片尺寸与布局位置不变，不会推挤相邻卡片。
+     注意：.hov 是「强制悬停」工具类，只给静态截图用；页面里加上它，那张卡就永远不会再有动效。 */
+  .blk:hover,.blk.hov{
+    transform:translateY(-12px);
+    box-shadow:0 22px 36px -28px rgba(16,24,64,.42);
+    z-index:3;
+  }
+  /* 早前那版蓝色硬阴影：box-shadow:10px 12px 0 rgba(37,89,216,.88);
+     想换回去，把上面那行 box-shadow 替换成这一条即可。 */
+  .blk:nth-child(1):hover,.blk:nth-child(1).hov{transform:translateY(-12px) rotate(-.8deg)}
+  .blk:nth-child(2):hover,.blk:nth-child(2).hov{transform:translateY(-12px) rotate(.8deg)}
+  .blk:nth-child(3):hover,.blk:nth-child(3).hov{transform:translateY(-12px) rotate(-.8deg)}
+  .blk:hover .go,.blk.hov .go{color:var(--ink)}
+
+  /* 左右边缘隐按键：只有一个空心圆，垂直居中，无外框、无文字 */
+  .edge{
+    position:absolute;top:50%;transform:translateY(-50%);z-index:6;
+    width:36px;height:36px;border-radius:50%;padding:0;
+    border:1.3px solid currentColor;background:transparent;
+    color:var(--ink-3);cursor:pointer;
+    display:grid;place-items:center;
+    transition:color var(--dur-fast) ease;
+  }
+  .edge.left{left:30px}
+  .edge.right{right:30px}
+  .edge:hover,.edge:focus-visible{color:var(--ink)}
+  .edge svg{display:block}
+
+  /* ---------- 键盘可达 ---------- */
+  .play:focus-visible,.tb-tabs button:focus-visible,.board-head .sp button:focus-visible,
+  .edge:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+  /* ---------- 动效降级 ---------- */
+  /* 系统开启「减少动态效果」：开场动画直接呈现完成态，不做位移 */
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{
+      animation-duration:.01ms !important;
+      animation-delay:0ms !important;
+      animation-iteration-count:1 !important;
+      transition-duration:.01ms !important;
+      scroll-behavior:auto !important;
+    }
+    #f1 .corner,#f1 .user,#f1 .scroll-hint{opacity:1}
+  }
+
+  /* ============================================================
+     画板 04 · 上传整页（左进料 / 右侧出报告）
+     ============================================================ */
+  .back{
+    position:absolute;left:58px;top:34px;z-index:3;
+    font-size:11px;letter-spacing:.18em;color:#6a7278;text-decoration:none;cursor:pointer;
+  }
+  .back:hover{color:var(--ink)}
+  .up-title{position:absolute;left:58px;top:66px;margin:0;z-index:3;font-size:32px;font-weight:600;letter-spacing:-.01em}
+  .up-sub{position:absolute;left:58px;top:112px;margin:0;z-index:3;font-size:12px;color:#6a7278;letter-spacing:.02em}
+
+  .up-left{position:absolute;left:58px;top:158px;width:800px;z-index:3}
+  .up-sec{border:1px solid #e7eaf0;border-radius:12px;background:#fff;padding:16px 18px 18px;margin-bottom:14px}
+  .up-sec header{display:flex;align-items:center;gap:12px}
+  .up-sec .idx{font:500 10px/1 Consolas,monospace;letter-spacing:.14em;color:#9aa0a7}
+  .up-sec h3{margin:0;font-size:14px;font-weight:600;letter-spacing:.12em}
+  .up-sec header .chip{margin-left:auto}
+  .up-sec header .ghost{margin-left:auto}
+
+  .chip{font:500 9.5px/1 "Consolas",monospace;letter-spacing:.14em;padding:5px 8px;border-radius:20px;
+        border:1px solid #dfe4ea;color:#6a7278;text-transform:uppercase}
+  .chip.ok{border-color:#bfe0c8;color:#2f7d4a;background:#f3fbf5}
+
+  .file{display:flex;align-items:center;gap:14px;margin-top:14px;padding:12px 14px;border:1px solid #e7eaf0;border-radius:10px;background:#fafbfd}
+  .fico{width:38px;height:46px;border:1px solid #dfe4ea;border-radius:4px;display:grid;place-items:center;
+        font:600 9px/1 Consolas,monospace;letter-spacing:.08em;color:#6a7278;background:#fff}
+  .fmeta{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .fmeta b{font-size:12.5px;font-weight:600;letter-spacing:.02em}
+  .fmeta span{font-size:10.5px;color:#8a9198;letter-spacing:.04em}
+  .fops{margin-left:auto;display:flex;gap:8px}
+
+  .ghost{border:1px solid #dfe4ea;background:#fff;border-radius:8px;padding:7px 12px;
+         font:500 10.5px/1 "Segoe UI";letter-spacing:.1em;color:#4a5157;cursor:pointer}
+  .ghost:hover{border-color:#141414;color:#141414}
+  .ghost.sm{padding:6px 10px;font-size:10px}
+
+  .proj{display:flex;align-items:center;gap:12px;margin-top:14px;padding:11px 14px;border:1px solid #e7eaf0;border-radius:10px;background:#fafbfd}
+  .pico{width:30px;height:30px;border-radius:50%;border:1px solid #141414;display:grid;place-items:center;
+        font:600 9px/1 Consolas,monospace;letter-spacing:.04em}
+  .pmeta{display:flex;flex-direction:column;gap:4px}
+  .pmeta b{font-size:12px;font-weight:600}
+  .pmeta span{font-size:10px;color:#8a9198;letter-spacing:.04em}
+  .pin{margin-left:auto;font:500 9px/1 "Segoe UI";letter-spacing:.16em;padding:5px 9px;border-radius:20px;
+       background:#141414;color:#fff}
+
+  .add-row{display:flex;gap:10px;margin-top:12px}
+  .add{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;
+       border:1px dashed #c9ced6;background:#fff;border-radius:10px;padding:13px 10px;
+       font:500 11px/1 "Segoe UI";letter-spacing:.1em;color:#4a5157;cursor:pointer}
+  .add b{font-size:14px;font-weight:400;color:#8a9198}
+  .add:hover{border-color:#141414;color:#141414}
+  .add:hover b{color:#141414}
+
+  .up-sec textarea{
+    display:block;width:100%;height:88px;margin-top:14px;padding:12px 14px;resize:none;
+    border:1px solid #e7eaf0;border-radius:10px;background:#fafbfd;
+    font:400 12px/1.7 "Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink);outline:none;
+  }
+  .up-sec textarea::placeholder{color:#a7aeb6}
+  .up-sec textarea:focus{border-color:#141414;background:#fff}
+  .ta-foot{display:flex;justify-content:space-between;margin-top:8px;font-size:10px;letter-spacing:.08em;color:#9aa0a7}
+
+  .up-right{position:absolute;right:58px;top:150px;width:300px;z-index:3}
+  .prog{display:flex;align-items:baseline;gap:8px;border-bottom:1px solid #e7eaf0;padding-bottom:18px}
+  .prog b{font:600 72px/1 "Bahnschrift","Segoe UI",sans-serif;letter-spacing:-.04em}
+  .prog span{font:500 14px/1 Consolas,monospace;color:#9aa0a7;letter-spacing:.1em}
+  .check{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:0}
+  .check li{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0f2f6;
+            font-size:11.5px;letter-spacing:.1em;color:#9aa0a7}
+  .check li::before{content:"";width:6px;height:6px;border-radius:50%;border:1px solid #c9ced6;flex:0 0 auto}
+  .check li.on{color:var(--ink)}
+  .check li.on::before{background:#141414;border-color:#141414}
+  .hint{margin:18px 0 0;font-size:10.5px;line-height:1.7;color:#8a9198;letter-spacing:.02em}
+
+  .up-foot{
+    position:absolute;left:58px;right:58px;bottom:30px;z-index:4;
+    display:flex;align-items:center;justify-content:space-between;
+    border-top:1px solid #e7eaf0;padding-top:14px;
+  }
+  .up-foot span{font:400 10px/1 "Consolas",monospace;letter-spacing:.14em;color:#9aa0a7}
+  .primary{
+    border:0;border-radius:8px;background:#141414;color:#fff;cursor:pointer;
+    font:600 11px/1 "Segoe UI";letter-spacing:.16em;padding:13px 22px;
+  }
+  .primary:hover{background:#2559d8}
+
+  /* ============================================================
+     画板 05 / 06 · 简历模块（左内容 / 右流程轨）
+     ============================================================ */
+  .mod-title{position:absolute;left:58px;top:66px;margin:0;z-index:3;font-size:32px;font-weight:600;letter-spacing:-.01em}
+  .mod-sub{position:absolute;left:58px;top:112px;margin:0;z-index:3;font-size:12px;color:#6a7278}
+
+  /* 右侧流程轨 */
+  .flow{position:absolute;right:58px;top:158px;width:300px;z-index:3}
+  .flow .cap{font:500 9.5px/1 "Consolas",monospace;letter-spacing:.24em;text-transform:uppercase;color:#9aa0a7}
+  .steps{list-style:none;margin:20px 0 0;padding:0}
+  .steps li{position:relative;padding-left:28px;margin-bottom:22px;font-size:12.5px;letter-spacing:.1em;color:#a7aeb6}
+  .steps li::before{
+    content:"";position:absolute;left:0;top:2px;width:9px;height:9px;border-radius:50%;
+    border:1px solid #c9ced6;background:#fff;
+  }
+  .steps li::after{content:"";position:absolute;left:4px;top:17px;bottom:-18px;width:1px;background:#e7eaf0}
+  .steps li:last-child::after{display:none}
+  .steps li.done{color:#141414}
+  .steps li.done::before{background:#141414;border-color:#141414}
+  .steps li.now{color:#141414;font-weight:600}
+  .steps li.now::before{background:#fff;border-color:#141414;box-shadow:0 0 0 3px rgba(20,20,20,.09)}
+  .steps li .st{display:block;margin-top:6px;font-size:9.5px;letter-spacing:.14em;font-weight:400;color:#9aa0a7}
+  .flow .sum{margin-top:26px;padding-top:16px;border-top:1px solid #e7eaf0;display:flex;gap:26px}
+  .flow .sum div{display:flex;flex-direction:column;gap:6px}
+  .flow .sum b{font:600 22px/1 "Bahnschrift","Segoe UI",sans-serif}
+  .flow .sum span{font-size:9px;letter-spacing:.16em;color:#9aa0a7;text-transform:uppercase}
+
+  /* 05 选择方式 */
+  .opt-wrap{position:absolute;left:58px;top:170px;width:880px;display:flex;gap:24px;z-index:3}
+  .opt{flex:1;border:1px solid #e7eaf0;border-radius:14px;padding:26px 26px 24px;display:flex;flex-direction:column;background:#fff}
+  .opt .kicker{font:500 9.5px/1 Consolas,monospace;letter-spacing:.2em;color:#9aa0a7}
+  .opt h3{margin:12px 0 0;font-size:19px;font-weight:600;letter-spacing:.06em}
+  .opt p{margin:12px 0 0;font-size:12px;line-height:1.85;color:#6a7278;letter-spacing:.02em}
+  .opt .need{margin-top:auto;padding-top:18px;font-size:10.5px;line-height:1.7;color:#8a9198;letter-spacing:.04em}
+  .opt .primary{margin-top:16px;width:100%;padding:14px 0}
+  .opt.dim{background:#fafbfc}
+  .opt.dim .primary{background:#fff;color:#b3b9bf;border:1px solid #e7eaf0}
+
+  /* 06 问答卡 */
+  .q{
+    position:absolute;left:58px;top:158px;width:800px;z-index:3;
+    border:1px solid #e7eaf0;border-radius:14px;padding:26px 30px 24px;background:#fff;
+  }
+  .q .top{display:flex;align-items:center;justify-content:space-between}
+  .q .cnt{font:500 10px/1 Consolas,monospace;letter-spacing:.18em;color:#9aa0a7}
+  .q h3{margin:20px 0 0;font-size:23px;font-weight:600;line-height:1.55;letter-spacing:.01em}
+  .q .basis{
+    margin-top:16px;padding:12px 14px;background:#f7f8fa;border-left:2px solid #141414;
+    font-size:11.5px;line-height:1.75;color:#5d646b;letter-spacing:.02em;
+  }
+  .q .basis b{font-weight:600;color:#141414}
+  .q .opts{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+  .q .opts button{
+    border:1px solid #dfe4ea;background:#fff;border-radius:8px;padding:11px 16px;cursor:pointer;
+    font:500 11.5px/1 "Segoe UI";letter-spacing:.08em;color:#2b3138;
+  }
+  .q .opts button:hover{border-color:#141414}
+  .q .free{margin-top:12px;height:46px;border:1px solid #e7eaf0;border-radius:8px;display:flex;align-items:center;
+           padding:0 14px;font-size:12px;color:#a7aeb6;background:#fafbfd}
+  .q .foot{display:flex;align-items:center;justify-content:space-between;margin-top:22px}
+  .q .foot .esc{font-size:10.5px;letter-spacing:.1em;color:#8a9198}
+
+  .done-list{position:absolute;left:58px;top:560px;width:800px;z-index:3}
+  .done-list .cap{font:500 9.5px/1 Consolas,monospace;letter-spacing:.24em;text-transform:uppercase;color:#9aa0a7}
+  .done-list ul{list-style:none;margin:14px 0 0;padding:0}
+  .done-list li{display:flex;gap:14px;align-items:baseline;padding:10px 0;border-bottom:1px solid #f0f2f6;font-size:11.5px;color:#5d646b}
+  .done-list li b{font-weight:600;color:#141414;min-width:132px}
+
+  /* ============================================================
+     画板 07 / 08 · 岗位模块
+     ============================================================ */
+  .cond{position:absolute;left:58px;top:150px;width:800px;z-index:3;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .cond .c{border:1px solid #e2e6ec;border-radius:20px;padding:7px 13px;font-size:11px;letter-spacing:.05em;color:#3d444b}
+  .cond .edit{margin-left:auto;border:0;background:none;cursor:pointer;font:500 10.5px/1 "Segoe UI";letter-spacing:.14em;color:#6a7278}
+  .cond .edit:hover{color:#141414}
+
+  .fbar{
+    position:absolute;left:58px;top:198px;width:800px;z-index:3;
+    display:flex;align-items:center;gap:20px;padding-bottom:12px;border-bottom:1px solid #e7eaf0;
+    font:400 10.5px/1 "Segoe UI";letter-spacing:.1em;color:#9aa0a7;
+  }
+  .fbar b{color:#141414;font-weight:600}
+  .fbar .sort{margin-left:auto;display:flex;gap:16px}
+  .fbar .sort u{text-decoration:none;color:#141414;border-bottom:1px solid #141414;padding-bottom:2px}
+
+  .jlist{position:absolute;left:58px;top:220px;width:800px;z-index:3}
+  .jrow{display:flex;align-items:center;gap:18px;padding:15px 0;border-bottom:1px solid #f0f2f6}
+  .jrow h4{margin:0;font-size:14.5px;font-weight:600;letter-spacing:.02em}
+  .jrow .sub{margin-top:7px;font-size:11px;color:#6a7278;letter-spacing:.04em}
+  .jrow .src{display:flex;align-items:center;gap:8px;margin-top:7px;font-size:10px;color:#9aa0a7;letter-spacing:.06em}
+  .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+  .dot.ok{background:#2f7d4a}
+  .dot.pend{background:#b9bfc6}
+  .dot.dead{background:#c98a2f}
+  .score{margin-left:auto;text-align:right}
+  .score b{display:block;font:600 22px/1 "Bahnschrift","Segoe UI",sans-serif}
+  .score span{font-size:9px;letter-spacing:.16em;color:#9aa0a7}
+
+  .pager{
+    position:absolute;left:58px;top:640px;width:800px;z-index:3;
+    display:flex;align-items:center;gap:6px;font:400 11px/1 "Segoe UI";letter-spacing:.06em;color:#6a7278;
+  }
+  .pager span{min-width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;border-radius:6px}
+  .pager span.on{border-color:#141414;color:#141414;font-weight:600}
+  .pager .next-page{margin-left:8px}
+
+  /* 08 详情 */
+  .jhead{position:absolute;left:58px;top:146px;width:800px;z-index:3}
+  .jhead h2{margin:0;font-size:26px;font-weight:600;letter-spacing:.01em}
+  .jhead .sub{margin-top:10px;font-size:11px;color:#6a7278;letter-spacing:.04em}
+  .jhead .sub b{font-weight:600;color:#141414}
+
+  .krow{position:absolute;left:58px;top:236px;width:800px;z-index:3;display:flex;gap:9px}
+  .k{display:flex;align-items:center;gap:8px;border:1px solid #e7eaf0;border-radius:8px;padding:10px 13px;font-size:11px;letter-spacing:.03em;color:#3d444b}
+  .k i{font-style:normal;font-size:10px}
+  .k.ok i{color:#2f7d4a}
+  .k.no{border-color:#f0ddd6}
+  .k.no i{color:#c0533a}
+
+  .cols{position:absolute;left:58px;top:306px;width:800px;z-index:3;display:flex;gap:22px}
+  .col{flex:1;min-width:0}
+  .col h5{margin:0 0 8px;font-size:9.5px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:#9aa0a7}
+  .col ul{list-style:none;margin:0;padding:0}
+  .col li{padding:9px 0;border-bottom:1px solid #f0f2f6;font-size:11.5px;line-height:1.5;color:#3d444b;display:flex;gap:7px}
+  .col li em{font-style:normal;color:#9aa0a7;flex:0 0 auto}
+  .col.miss li{color:#6a7278}
+
+  .next{position:absolute;left:58px;top:520px;width:800px;z-index:3;border-top:1px solid #e7eaf0;padding-top:18px}
+  .next .cap{font:500 9.5px/1 Consolas,monospace;letter-spacing:.22em;text-transform:uppercase;color:#9aa0a7}
+  .next ul{list-style:none;margin:14px 0 0;padding:0;display:flex;gap:26px}
+  .next li{font-size:11.5px;line-height:1.7;color:#3d444b;max-width:230px}
+  .next li b{display:block;font-size:10px;letter-spacing:.14em;color:#9aa0a7;margin-bottom:6px;text-transform:uppercase}
+
+  .jfoot{position:absolute;left:58px;top:760px;width:800px;z-index:3;display:flex;align-items:center;gap:12px}
+
+  .bars{margin-top:24px;padding-top:16px;border-top:1px solid #e7eaf0}
+  .bar{margin-bottom:13px}
+  .bar .lb{display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.12em;color:#6a7278;text-transform:uppercase}
+  .bar .tr{height:2px;background:#eceef2;margin-top:6px}
+  .bar .tr i{display:block;height:2px;background:#141414}
+
+  /* ============================================================
+     画板 09 / 10 · 面试模块
+     ============================================================ */
+  .iv-meta{display:flex;align-items:center;gap:12px;font:500 10px/1 Consolas,monospace;letter-spacing:.16em;color:#9aa0a7}
+  .iv-meta b{color:#141414;font-weight:600}
+  .iv-meta .tm{margin-left:auto}
+
+  .iv{
+    position:absolute;left:58px;top:158px;width:800px;z-index:3;
+    border:1px solid #e7eaf0;border-radius:14px;padding:24px 30px 22px;background:#fff;
+  }
+  .iv h3{margin:18px 0 0;font-size:22px;font-weight:600;line-height:1.6;letter-spacing:.01em}
+  .follow{margin-top:20px;margin-left:20px;padding-left:16px;border-left:1px solid #dfe4ea}
+  .follow .lb{font:500 9px/1 Consolas,monospace;letter-spacing:.2em;text-transform:uppercase;color:#9aa0a7}
+  .follow p{margin:8px 0 0;font-size:12.5px;line-height:1.75;color:#3d444b}
+  .iv .ans{
+    margin-top:22px;height:120px;border:1px solid #e7eaf0;border-radius:10px;background:#fafbfd;
+    padding:14px 16px;font-size:12px;line-height:1.7;color:#a7aeb6;
+  }
+  .iv .ans .hint2{display:block;margin-top:12px;font-size:10px;letter-spacing:.1em;color:#b9bfc6}
+  .iv .riv{display:flex;align-items:center;justify-content:space-between;margin-top:18px}
+
+  .pts{list-style:none;margin:18px 0 0;padding:0}
+  .pts li{display:flex;align-items:center;gap:9px;padding:7px 0;font-size:11px;letter-spacing:.04em;color:#a7aeb6}
+  .pts li i{font-style:normal;font-size:9px;width:12px;text-align:center}
+  .pts li.on{color:#141414}
+  .pts li.on i{color:#2f7d4a}
+
+  /* 报告 */
+  .dims{position:absolute;left:58px;top:146px;width:800px;z-index:3}
+  .dim{display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid #f0f2f6}
+  .dim .nm{width:92px;flex:0 0 auto;font-size:11.5px;letter-spacing:.1em}
+  .dim .tr{flex:1;height:2px;background:#eceef2;position:relative}
+  .dim .tr i{position:absolute;left:0;top:0;height:2px;background:#141414}
+  .dim .sc{width:36px;flex:0 0 auto;text-align:right;font:600 13px/1 "Bahnschrift","Segoe UI",sans-serif}
+  .dim .why{width:230px;flex:0 0 auto;font-size:10px;line-height:1.55;color:#8a9198}
+
+  .weak-wrap{position:absolute;left:58px;top:430px;width:800px;z-index:3}
+  .weak-wrap .cap{font:500 9.5px/1 Consolas,monospace;letter-spacing:.22em;text-transform:uppercase;color:#9aa0a7}
+  .weak{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid #f0f2f6}
+  .weak b{min-width:168px;font-size:12px;font-weight:600}
+  .weak span{font-size:11px;color:#6a7278;line-height:1.6}
+  .weak .acts{margin-left:auto;display:flex;gap:8px}
+  .more{display:block;margin-top:14px;font-size:10.5px;letter-spacing:.1em;color:#6a7278;text-decoration:none}
+  .more:hover{color:#141414}
+
+  .rfoot{position:absolute;left:58px;top:790px;width:800px;z-index:3;display:flex;gap:12px;align-items:center}
+
+  /* ============================================================
+     画板 11 / 12 · 右侧档案（空态 / 半满态）
+     ============================================================ */
+  .arch{position:absolute;left:58px;top:146px;width:800px;z-index:3}
+  .big{display:flex;align-items:baseline;gap:10px}
+  .big b{font:600 62px/1 "Bahnschrift","Segoe UI",sans-serif;letter-spacing:-.03em}
+  .big span{font:500 12px/1 Consolas,monospace;letter-spacing:.14em;color:#9aa0a7}
+  .big em{font-style:normal;margin-left:16px;font-size:11.5px;letter-spacing:.06em;color:#8a9198}
+  .seg{display:flex;gap:4px;margin-top:18px}
+  .seg i{flex:1;height:4px;background:#eceef2}
+  .seg i.on{background:#141414}
+
+  .sect{font:500 9.5px/1 Consolas,monospace;letter-spacing:.22em;text-transform:uppercase;color:#9aa0a7}
+  .mrow{display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid #f0f2f6;margin-top:6px}
+  .mrow .nm{width:64px;flex:0 0 auto;font-size:12.5px;font-weight:600}
+  .mrow .st{font-size:11px;color:#9aa0a7;letter-spacing:.04em}
+  .mrow .st.ok{color:#2f7d4a}
+  .mrow .act{margin-left:auto;display:flex;gap:8px}
+
+  .tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .tag{border:1px solid #e2e6ec;border-radius:20px;padding:6px 12px;font-size:11px;letter-spacing:.04em;color:#3d444b}
+  .tag.dim{color:#b9bfc6;border-style:dashed}
+
+  .note-bar{
+    margin-top:22px;padding:12px 14px;background:#f7f8fa;border-left:2px solid #141414;
+    font-size:11.5px;line-height:1.7;color:#5d646b;letter-spacing:.02em;
+  }
+  .gap{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #f0f2f6;font-size:11.5px;color:#3d444b}
+  .gap em{font-style:normal;font-size:10px;letter-spacing:.1em;color:#c0533a;min-width:56px}
+  .gap .act{margin-left:auto}
+</style>
+</head>
+<body>
+<header class="topbar-ui">
+  <div class="tb-title">JobHunter · 线稿 v2</div>
+  <div class="tb-sub">开场动画 → 主页｜1440 × 900｜仅结构，不定视觉</div>
+  <nav class="tb-tabs" id="tabs"></nav>
+</header>
+
+<main id="stage">
+
+  <!-- ============ 01 开场首帧 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">01</span>
+      <span class="nm">开场 · 首帧（仅标题）</span>
+      <span class="sp"><button id="playBtn">▶ 播放开场动画</button></span>
+    </div>
+    <div class="frame"><div class="wf" id="f1">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+      <div class="intro-title">Job<span class="out">Hunter</span><span class="dot">.</span></div>
+      <div class="corner tl"><div class="logo">J</div></div>
+      <div class="user">
+        <span class="u-login">登录</span>
+        <span class="u-ava"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.15">
+          <circle cx="12" cy="8.6" r="3.5"/><path d="M5.2 19.6c1.5-3.6 3.9-5.2 6.8-5.2s5.3 1.6 6.8 5.2"/></svg></span>
+      </div>
+      <div class="scroll-hint">
+        <div class="mouse"></div>
+        <div class="tx">向下滑动</div>
+      </div>
+      <div class="badge" style="left:calc(50% + 300px);top:400px">1</div>
+      <div class="badge" style="left:40px;top:34px">2</div>
+      <div class="badge" style="left:calc(100% - 30px);top:64px">3</div>
+      <div class="badge" style="left:calc(50% + 46px);bottom:108px">4</div>
+    </div></div>
+    <div class="notes">
+      <div><b>1 · 标题</b><br>0ms 起淡入并上移 14px，独占整屏，无其他元素。</div>
+      <div><b>2 · 左上标识</b><br>约 700ms 淡入。首帧不显示，避免和主标题抢注意力。</div>
+      <div><b>3 · 右上角</b><br>约 800ms 淡入。书页折角压住大半个角，头像被遮住一部分；悬停折角翻起更大。</div>
+      <div><b>4 · 下滑提示</b><br>约 1250ms 出现，之后轻微上下浮动；滚轮一动即淡出。</div>
+      <div><b>时序</b><br><i>0 — 700 — 800 — 1250ms</i>，全程约 1.9s 收束到位。</div>
+      <div><b>可跳过</b><br>滚动或点击屏幕任意处，直接跳到完成态。</div>
+    </div>
+  </section>
+
+  <!-- ============ 02 开场完成态 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">02</span>
+      <span class="nm">开场 · 动画完成态</span>
+    </div>
+    <div class="frame"><div class="wf" id="f2">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+      <div class="intro-title" style="transform:translateY(-50%) translateY(-96px);font-size:91px">Job<span class="out">Hunter</span><span class="dot">.</span></div>
+      <div class="corner tl"><div class="logo">J</div></div>
+      <div class="user">
+        <span class="u-login">登录</span>
+        <span class="u-ava"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.15">
+          <circle cx="12" cy="8.6" r="3.5"/><path d="M5.2 19.6c1.5-3.6 3.9-5.2 6.8-5.2s5.3 1.6 6.8 5.2"/></svg></span>
+      </div>
+      <div class="scroll-hint">
+        <div class="mouse"></div>
+        <div class="tx">向下滑动</div>
+      </div>
+      <div class="badge" style="left:calc(50% + 300px);top:400px">5</div>
+      <div class="badge" style="left:40px;top:34px">2</div>
+      <div class="badge" style="left:calc(100% - 30px);top:64px">3</div>
+    </div></div>
+    <div class="notes">
+      <div><b>5 · 定格位置</b><br>标题上移 96px、缩至 84%，让出下方视野；三块内容在下一屏。</div>
+      <div><b>标识位置</b><br>左上 56/48，与右上登录同一水平线，构成顶部一条基线。</div>
+      <div><b>登录形态</b><br>不再是头像圆圈：折角盖住部分头像，未登录时折角旁写「登录」，登录后换成被折角压住的姓名。</div>
+    </div>
+  </section>
+
+  <!-- ============ 03 主页 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">03</span>
+      <span class="nm">主页 · 三个板块</span>
+      <span class="sp" id="stateBtns">
+        <button data-s="guest" class="on">未登录</button>
+        <button data-s="logged">已登录</button>
+        <button data-s="done">已上传</button>
+      </span>
+    </div>
+    <div class="frame"><div class="wf" id="f3" data-state="guest">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <div class="main-head">
+        <div class="tl"><div class="logo">J</div></div>
+      </div>
+
+      <div class="user" tabindex="0" aria-label="账户">
+        <span class="u-login">登录</span>
+        <span class="u-nm">李思远</span>
+        <span class="u-ava"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.15">
+          <circle cx="12" cy="8.6" r="3.5"/><path d="M5.2 19.6c1.5-3.6 3.9-5.2 6.8-5.2s5.3 1.6 6.8 5.2"/></svg></span>
+      </div>
+
+      <div class="welcome">
+        <div class="ov">AI Job Hunter · 求职决策与执行平台</div>
+        <h2 class="h">Welcome to<br><em>Job Hunter</em></h2>
+        <div class="s"><i></i>Hunt job, hunt your heart<i></i></div>
+      </div>
+
+      <div class="blocks">
+        <article class="blk">
+          <div class="no">01 / RESUME</div>
+          <div class="art"><svg width="120" height="98" viewBox="0 0 120 98" fill="none">
+            <rect x="34" y="6" width="52" height="86" rx="4" stroke="#141414" stroke-width="1.3"/>
+            <path d="M44 20h32M44 30h32M44 40h22M44 52h32M44 62h26" stroke="#141414" stroke-width="1.3" stroke-opacity=".42"/>
+            <circle cx="88" cy="70" r="11" fill="#fff" stroke="#141414" stroke-width="1.3"/>
+            <path d="M83.4 70.2l3.2 3.4 6.4-7.2" stroke="#141414" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg></div>
+          <h3>简历</h3>
+          <p>解析、诊断并重写简历，把真实经历整理成有证据的表达。</p>
+          <div class="go">进入 →</div>
+          <span class="blk-fold" aria-hidden="true"></span>
+        </article>
+        <article class="blk">
+          <div class="no">02 / JOBS</div>
+          <div class="art"><svg width="120" height="98" viewBox="0 0 120 98" fill="none">
+            <rect x="14" y="14" width="66" height="16" rx="5" stroke="#141414" stroke-width="1.3"/>
+            <path d="M23 22h18" stroke="#141414" stroke-width="1.3" stroke-opacity=".42"/>
+            <rect x="14" y="38" width="66" height="16" rx="5" stroke="#141414" stroke-width="1.3"/>
+            <path d="M23 46h28" stroke="#141414" stroke-width="1.3" stroke-opacity=".42"/>
+            <rect x="14" y="62" width="66" height="16" rx="5" stroke="#141414" stroke-width="1.3"/>
+            <path d="M23 70h13" stroke="#141414" stroke-width="1.3" stroke-opacity=".42"/>
+            <path d="M96 27c0 7.4 9.5 16.6 9.5 16.6S115 34.4 115 27a9.5 9.5 0 1 0-19 0Z" stroke="#141414" stroke-width="1.3"/>
+            <circle cx="105.5" cy="27" r="3.4" stroke="#141414" stroke-width="1.3"/>
+          </svg></div>
+          <h3>岗位</h3>
+          <p>搜索并核验岗位，说明匹配依据与能力差距。</p>
+          <div class="go">进入 →</div>
+          <span class="blk-fold" aria-hidden="true"></span>
+        </article>
+        <article class="blk">
+          <div class="no">03 / INTERVIEW</div>
+          <div class="art"><svg width="120" height="98" viewBox="0 0 120 98" fill="none">
+            <rect x="12" y="14" width="58" height="36" rx="11" stroke="#141414" stroke-width="1.3"/>
+            <path d="M24 50l-3.4 11L33 50" stroke="#141414" stroke-width="1.3" stroke-linejoin="round"/>
+            <path d="M24 27h24M24 37h32" stroke="#141414" stroke-width="1.3" stroke-opacity=".42"/>
+            <rect x="54" y="54" width="48" height="28" rx="10" stroke="#141414" stroke-width="1.3"/>
+            <path d="M88 82l4.2 9-10.4-9" stroke="#141414" stroke-width="1.3" stroke-linejoin="round"/>
+            <path d="M66 68h11M66 75h22" stroke="#141414" stroke-width="1.3" stroke-opacity=".42"/>
+          </svg></div>
+          <h3>面试</h3>
+          <p>结合简历与岗位 JD 进行多轮模拟面试，给到具体反馈。</p>
+          <div class="go">进入 →</div>
+          <span class="blk-fold" aria-hidden="true"></span>
+        </article>
+      </div>
+
+      <div class="meta">
+        <span>AI Job Hunter / 2026</span>
+        <span>简历 · 岗位 · 面试</span>
+      </div>
+
+      <button class="edge left" aria-label="上传资料">
+        <svg width="15" height="18" viewBox="0 0 15 18" fill="none">
+          <path d="M7.5 16.5V2.6" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M3.4 6.6 7.5 2.5l4.1 4.1" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+
+      <!-- 右边缘：报告 -->
+      <button class="edge right" aria-label="查看报告">
+        <svg width="16" height="18" viewBox="0 0 16 18" fill="none">
+          <rect x="1" y="1" width="14" height="16" rx="2" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M4.4 5.6h7.2M4.4 9h7.2M4.4 12.4h4.2" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+
+      <div class="badge" style="left:72px;top:426px">6</div>
+      <div class="badge" style="left:calc(100% - 72px);top:426px">7</div>
+      <div class="badge" style="left:calc(50% - 14px);top:320px">8</div>
+    </div></div>
+    <div class="notes">
+      <div><b>6 · 左边缘上传</b><br>只有一枚 36px 空心圆，垂直居中贴左边缘，无外框无文字；悬停描边转黑。</div>
+      <div><b>7 · 右边缘报告</b><br>与上传镜像对称、同尺寸同描边，图标换成清单，同样无外框无文字。</div>
+      <div><b>8 · 三板块</b><br>等宽等高、间距 32、整体略低于垂直中心。悬停：上移 12px、相邻交替旋转 ±0.8°、右下角折角掀起放大（240ms ease）、软投影加深。</div>
+      <div><b>上传三态</b><br>未登录「登录后上传资料」／已登录「上传资料」／已上传只剩箭头。</div>
+      <div><b>点击行为（待定）</b><br>上传→资料面板；报告→结果汇总。是否整屏上滑进入资料区需你确认。</div>
+      <div><b>右上角</b><br>书页折角压住大半个角，头像被遮掉一部分（允许不完整）；登录后姓名「李思远」藏在折角下，悬停折角翻起才露出来。</div>
+    </div>
+  </section>
+
+  <!-- ============ 04 上传整页 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">04</span>
+      <span class="nm">上传 · 建立求职档案（整页 / 左进料）</span>
+    </div>
+    <div class="frame"><div class="wf" id="f4">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <a class="back">← 返回主页</a>
+      <h2 class="up-title">建立求职档案</h2>
+      <p class="up-sub">三块内容随时可改，离开自动保存。</p>
+
+      <div class="up-left">
+
+        <section class="up-sec">
+          <header>
+            <span class="idx">01</span><h3>个人简历</h3>
+            <span class="chip ok">已上传</span>
+          </header>
+          <div class="file">
+            <div class="fico">PDF</div>
+            <div class="fmeta">
+              <b>陈嘉禾_产品实习.pdf</b>
+              <span>1.2 MB · 2 页 · 已识别 3 段经历</span>
+            </div>
+            <div class="fops">
+              <button class="ghost">替换</button>
+              <button class="ghost">移除</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="up-sec">
+          <header>
+            <span class="idx">02</span><h3>项目经历</h3>
+            <span class="chip">1 / 6</span>
+          </header>
+          <div class="proj">
+            <div class="pico">GH</div>
+            <div class="pmeta">
+              <b>job-hunter / frontend</b>
+              <span>GitHub · 128 个文件 · 已解析</span>
+            </div>
+            <span class="pin">主项目</span>
+            <button class="ghost">移除</button>
+          </div>
+          <div class="add-row">
+            <button class="add"><b>+</b>粘贴 GitHub 链接</button>
+            <button class="add"><b>+</b>上传 ZIP 压缩包</button>
+          </div>
+        </section>
+
+        <section class="up-sec">
+          <header>
+            <span class="idx">03</span><h3>主观经历</h3>
+            <button class="ghost sm" style="margin-left:auto">上传文档</button>
+          </header>
+          <textarea spellcheck="false" placeholder="比如：在 XX 项目里我负责……最难的是……最后做到……"></textarea>
+          <div class="ta-foot"><span>背景 → 你做了什么 → 结果</span><span>0 / 2000</span></div>
+        </section>
+
+      </div>
+
+      <aside class="up-right">
+        <div class="prog"><b>3</b><span>/ 6</span></div>
+        <ul class="check">
+          <li class="on">个人简历</li>
+          <li>目标岗位</li>
+          <li>目标城市</li>
+          <li class="on">项目经历</li>
+          <li>主观经历</li>
+          <li>期望类型</li>
+        </ul>
+        <p class="hint">至少完成「个人简历」，右侧的匹配档案才有内容可生成。</p>
+      </aside>
+
+      <footer class="up-foot">
+        <span>已自动保存 · 12:04</span>
+        <button class="primary">完成，返回主页</button>
+      </footer>
+    </div></div>
+    <div class="notes">
+      <div><b>入口</b><br>主页左边缘的空心圆点开，整页从左侧滑入；左上角「返回主页」或 Esc 退出。</div>
+      <div><b>PDF 行</b><br>上传后不是弹窗，是就地换成文件行：文件名 / 体积 / 页数 / 识别到的经历段数。</div>
+      <div><b>项目两个来源</b><br>GitHub 链接和 ZIP 压缩包并排，最终都进同一张项目卡，卡上可标「主项目」。</div>
+      <div><b>数量上限</b><br>6 个封顶，默认只铺 3 个；第 4 个起才展开列表。右上角始终显示「1 / 6」。</div>
+      <div><b>经历有两种写法</b><br>右上「上传文档」传 docx/pdf/md；或直接在框里写，2000 字，自动保存。</div>
+      <div><b>没有提交动作</b><br>全页自动保存，底部只有进度和「完成，返回主页」——这里不做分析，也不上传到服务器。</div>
+    </div>
+  </section>
+
+  <!-- ============ 05 简历 · 选择方式 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">05</span>
+      <span class="nm">简历 · 选择方式（左内容 / 右流程）</span>
+    </div>
+    <div class="frame"><div class="wf" id="f5">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <a class="back">← 返回主页</a>
+      <h2 class="mod-title">简历</h2>
+      <p class="mod-sub">先决定：写一份新的，还是改一份已有的。</p>
+
+      <div class="opt-wrap">
+        <div class="opt">
+          <div class="kicker">01 / Create</div>
+          <h3>生成一份新简历</h3>
+          <p>用你上传的档案和目标岗位从零写一份。系统先读完档案，再把里面说不清的地方一条条问你。</p>
+          <div class="need">需要：个人档案 + 目标岗位<br>动态题量 · 预计 6–9 个问题</div>
+          <button class="primary">开始生成</button>
+        </div>
+        <div class="opt">
+          <div class="kicker">02 / Revise</div>
+          <h3>修改已有简历</h3>
+          <p>读你上传的那份，先诊断问题（空泛、缺证据、冗余），再只针对疑点提问，最后给你一版改好的。</p>
+          <div class="need">使用：陈嘉禾_产品实习.pdf<br>2 页 · 已解析 · 可直接开始</div>
+          <button class="primary">开始诊断</button>
+        </div>
+      </div>
+
+      <aside class="flow">
+        <div class="cap">Process</div>
+        <ul class="steps">
+          <li class="now">选择方式<span class="st">现在在这里</span></li>
+          <li>读取档案</li>
+          <li>确认信息</li>
+          <li>生成草稿</li>
+          <li>检查与导出</li>
+        </ul>
+      </aside>
+    </div></div>
+    <div class="notes">
+      <div><b>两张卡不是 tab</b><br>生成和修改是两条不同的路：一个从零写，一个从旧稿改。用 tab 会让人误以为是同一个流程的两种视图。</div>
+      <div><b>代价写在卡上</b><br>生成卡标「预计 6–9 个问题」，修改卡标用的是哪份简历——先让人知道要花多少时间。</div>
+      <div><b>修改卡的前置条件</b><br>只有上传区已有简历时这张卡才可点；否则按钮变灰，显示「先去上传一份」。</div>
+      <div><b>右侧流程轨</b><br>五步固定、当前步高亮，它同时说明这一步会用到档案里的哪些材料。</div>
+    </div>
+  </section>
+
+  <!-- ============ 06 简历 · 确认信息 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">06</span>
+      <span class="nm">简历 · 确认信息（一次一题）</span>
+    </div>
+    <div class="frame"><div class="wf" id="f6">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <a class="back">← 返回上一步</a>
+      <h2 class="mod-title">确认信息</h2>
+      <p class="mod-sub">只问档案里说不清的地方，答完一条就少一个疑点。</p>
+
+      <div class="q">
+        <div class="top">
+          <span class="cnt">问题 03 / 08</span>
+          <button class="ghost sm">跳过</button>
+        </div>
+        <h3>「job-hunter 前端」这个项目里，你具体负责哪一部分？</h3>
+        <div class="basis"><b>依据</b>：你的档案里只写了「负责前端开发」，没有说明是独立完成还是与人协作。</div>
+        <div class="opts">
+          <button>独立完成</button>
+          <button>与人协作</button>
+          <button>只做了其中一块</button>
+        </div>
+        <div class="free">也可以直接写，比如「负责上传页和简历编辑器的交互」</div>
+        <div class="foot">
+          <span class="esc">就这些，用现有信息继续 →</span>
+          <button class="primary">确认并继续</button>
+        </div>
+      </div>
+
+      <div class="done-list">
+        <div class="cap">已确认 2 条</div>
+        <ul>
+          <li><b>实习时间</b>2024.07 – 2024.09，共 3 个月</li>
+          <li><b>技术栈</b>Python 来自课程，项目里实际用 TypeScript</li>
+        </ul>
+      </div>
+
+      <aside class="flow">
+        <div class="cap">Process</div>
+        <ul class="steps">
+          <li class="done">选择方式</li>
+          <li class="done">读取档案</li>
+          <li class="now">确认信息<span class="st">3 / 8 · 还剩 5 题</span></li>
+          <li>生成草稿</li>
+          <li>检查与导出</li>
+        </ul>
+        <div class="sum">
+          <div><b>2</b><span>已确认</span></div>
+          <div><b>5</b><span>还差</span></div>
+        </div>
+      </aside>
+    </div></div>
+    <div class="notes">
+      <div><b>一次一题</b><br>不做聊天流：一屏只有一道题，答完自动翻下一张；进度 3 / 8 始终可见。</div>
+      <div><b>「依据」是核心</b><br>每个问题都带着档案里的原文，用户知道自己为什么被问，也看得见将来写进简历的那句话从哪来。</div>
+      <div><b>三种回答方式</b><br>快捷选项（多数情况一秒答完）／自由输入（选项不够用时）／跳过（暂时不确定就先放着）。</div>
+      <div><b>永远留有出口</b><br>左下「就这些，用现有信息继续」——不能被无限追问，剩下的疑点转成简历里的「待确认」标记。</div>
+      <div><b>已确认在下</b><br>答过的题折叠在下方，可点开回改，不占当前视野。</div>
+      <div><b>动态题量</b><br>题数由档案决定：项目越多、缺证据的地方越多，题目越多；档案完整时这一步可能直接跳过。</div>
+    </div>
+  </section>
+
+  <!-- ============ 07 岗位 · 搜索结果 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">07</span>
+      <span class="nm">岗位 · 搜索结果（来源与核验 / 翻页）</span>
+    </div>
+    <div class="frame"><div class="wf" id="f7">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <a class="back">← 返回主页</a>
+      <h2 class="mod-title">岗位</h2>
+      <p class="mod-sub">128 个结果，94 个已核验。点进去看它为什么匹配。</p>
+
+      <div class="cond">
+        <span class="c">前端开发</span>
+        <span class="c">上海</span>
+        <span class="c">实习</span>
+        <span class="c">≥ 200 / 天</span>
+        <button class="edit">修改条件</button>
+      </div>
+
+      <div class="fbar">
+        <span><b>94</b> 已核验</span>
+        <span>128 全部</span>
+        <span class="sort">
+          <span>匹配度 <u>降序</u></span>
+          <span>最新</span>
+          <span>只看 &gt; 80%</span>
+        </span>
+      </div>
+
+      <div class="jlist">
+        <div class="jrow">
+          <div>
+            <h4>字节跳动 · 前端开发实习生</h4>
+            <div class="sub">上海 徐汇 · 200–300 / 天 · 实习 · 本科及以上</div>
+            <div class="src"><i class="dot ok"></i>已核验 · 实习僧 · 采集于 2 天前</div>
+          </div>
+          <div class="score"><b>82</b><span>匹配</span></div>
+        </div>
+
+        <div class="jrow">
+          <div>
+            <h4>小红书 · Web 前端实习生</h4>
+            <div class="sub">上海 黄浦 · 180–250 / 天 · 实习 · 本科及以上</div>
+            <div class="src"><i class="dot ok"></i>已核验 · 企业官网 · 采集于 4 小时前</div>
+          </div>
+          <div class="score"><b>79</b><span>匹配</span></div>
+        </div>
+
+        <div class="jrow">
+          <div>
+            <h4>米哈游 · 前端开发（校招）</h4>
+            <div class="sub">上海 徐汇 · 20–30K · 校招 · 本科及以上</div>
+            <div class="src"><i class="dot dead"></i>来源失效 · Offer先生 · 采集于 6 天前</div>
+          </div>
+          <div class="score"><b>74</b><span>匹配</span></div>
+        </div>
+
+        <div class="jrow">
+          <div>
+            <h4>哔哩哔哩 · 前端实习生</h4>
+            <div class="sub">杭州 滨江 · 150–220 / 天 · 实习 · 本科及以上</div>
+            <div class="src"><i class="dot pend"></i>待核验 · 实习僧 · 采集于 1 天前</div>
+          </div>
+          <div class="score"><b>71</b><span>匹配</span></div>
+        </div>
+      </div>
+
+      <div class="pager">
+        <span>‹</span><span class="on">1</span><span>2</span><span>3</span><span>…</span><span>7</span>
+        <span class="next-page">下一页 ›</span>
+      </div>
+
+      <aside class="flow">
+        <div class="cap">Process</div>
+        <ul class="steps">
+          <li class="done">设定条件</li>
+          <li class="now">搜索结果<span class="st">128 个 · 第 1 页</span></li>
+          <li>匹配详情</li>
+          <li>岗位对比</li>
+          <li>决策</li>
+        </ul>
+      </aside>
+    </div></div>
+    <div class="notes">
+      <div><b>每张卡必须有三样</b><br>来源（实习僧 / 企业官网 / Offer先生）、核验状态、采集时间。策划书里写死了：不能把「搜到」当成「还在招」。</div>
+      <div><b>三种核验状态</b><br>● 已核验（绿）／○ 待核验（灰）／◐ 来源失效（黄）。失效的不隐藏，只是标出来。</div>
+      <div><b>翻页</b><br>每页 12 个，底部数字分页；比无限滚动更容易「回到刚才那个」。</div>
+      <div><b>条件是一排 chips</b><br>不在顶部堆表单，改条件才展开——结果页的第一眼应该是岗位，不是筛选器。</div>
+    </div>
+  </section>
+
+  <!-- ============ 08 岗位 · 匹配详情 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">08</span>
+      <span class="nm">岗位 · 匹配详情（独立页 / 可解释）</span>
+    </div>
+    <div class="frame"><div class="wf" id="f8">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <a class="back">← 返回结果列表</a>
+
+      <div class="jhead">
+        <h2>字节跳动 · 前端开发实习生</h2>
+        <div class="sub">上海 徐汇 · 200–300 / 天 · 实习 · <b>实习僧</b> · <i class="dot ok"></i> 已核验 · 采集于 2 天前</div>
+      </div>
+
+      <div class="krow">
+        <div class="k ok"><i>✓</i>城市 上海</div>
+        <div class="k ok"><i>✓</i>类型 实习</div>
+        <div class="k ok"><i>✓</i>薪资 ≥ 200/天</div>
+        <div class="k ok"><i>✓</i>学历 本科</div>
+      </div>
+
+      <div class="cols">
+        <div class="col">
+          <h5>满足 · 3</h5>
+          <ul>
+            <li><em>✓</em>React / TypeScript</li>
+            <li><em>✓</em>组件库搭建</li>
+            <li><em>✓</em>Vite 工程化</li>
+          </ul>
+        </div>
+        <div class="col miss">
+          <h5>缺证据 · 2</h5>
+          <ul>
+            <li><em>?</em>性能优化（档案里没写）</li>
+            <li><em>?</em>团队协作证明</li>
+          </ul>
+        </div>
+        <div class="col miss">
+          <h5>不满足 · 1</h5>
+          <ul>
+            <li><em>✕</em>3 年以上经验</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="next">
+        <div class="cap">下一步</div>
+        <ul>
+          <li><b>简历强调</b>组件库、性能、协作，这三句要写进项目经历</li>
+          <li><b>面试准备</b>大概率问：虚拟列表、首屏优化、组件抽象</li>
+          <li><b>去补充</b>「性能优化」补一句可量化的结果</li>
+        </ul>
+      </div>
+
+      <div class="jfoot">
+        <button class="primary">生成定制简历</button>
+        <button class="ghost">加入对比</button>
+        <button class="ghost">不考虑</button>
+      </div>
+
+      <aside class="flow">
+        <div class="cap">Process</div>
+        <ul class="steps">
+          <li class="done">设定条件</li>
+          <li class="done">搜索结果</li>
+          <li class="now">匹配详情<span class="st">可解释的匹配</span></li>
+          <li>岗位对比</li>
+          <li>决策</li>
+        </ul>
+        <div class="bars">
+          <div class="bar"><div class="lb"><span>技能</span><span>82</span></div><div class="tr"><i style="width:82%"></i></div></div>
+          <div class="bar"><div class="lb"><span>项目</span><span>71</span></div><div class="tr"><i style="width:71%"></i></div></div>
+          <div class="bar"><div class="lb"><span>经历</span><span>48</span></div><div class="tr"><i style="width:48%"></i></div></div>
+        </div>
+      </aside>
+    </div></div>
+    <div class="notes">
+      <div><b>不给总分</b><br>顶部不放大数字，分数拆成技能 / 项目 / 经历三条，右边轨道里看得到。</div>
+      <div><b>三栏是关键</b><br>满足 / 缺证据 / 不满足必须分开：「没写」和「没有」是两回事，混在一起会让人误判没戏。</div>
+      <div><b>硬性条件在上</b><br>城市、类型、薪资、学历由规则判断，不打分、不解释——满足就打勾，不满足就红。</div>
+      <div><b>下一步可执行</b><br>每条建议都能点：去改简历、去看面试题、回上传页补证据。</div>
+      <div><b>对比上限 4</b><br>「加入对比」到第 5 个时按钮禁用，提示「最多比较 4 个」。</div>
+    </div>
+  </section>
+
+  <!-- ============ 09 面试 · 进行中 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">09</span>
+      <span class="nm">面试 · 进行中（一次一题 / 追问）</span>
+    </div>
+    <div class="frame"><div class="wf" id="f9">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <a class="back">← 结束面试</a>
+      <h2 class="mod-title" style="font-size:24px">字节跳动 · 前端开发实习生</h2>
+      <p class="mod-sub">综合面试 · 模拟模式 · 上限 20 分钟</p>
+
+      <div class="iv">
+        <div class="iv-meta">
+          <span><b>第 4 题</b> · 预计 8 题</span>
+          <span class="tm">已用 12:34</span>
+        </div>
+        <h3>你说这个项目做过首屏优化，具体把哪个指标从多少降到了多少？</h3>
+        <div class="follow">
+          <div class="lb">Follow-up</div>
+          <p>你提到用了虚拟列表，那滚动位置是怎么保持的？</p>
+        </div>
+        <div class="ans">
+          在这里作答，尽量说清楚：为什么这么做、你负责哪一步、最后是什么结果。
+          <span class="hint2">Enter 换行 · ⌘ Enter 提交 · 支持语音（暂未开放）</span>
+        </div>
+        <div class="riv">
+          <button class="ghost">跳过这题</button>
+          <button class="primary">提交回答</button>
+        </div>
+      </div>
+
+      <aside class="flow">
+        <div class="cap">Process</div>
+        <ul class="steps">
+          <li class="done">选岗位与模式</li>
+          <li class="now">面试进行<span class="st">4 / 8 题 · 12:34</span></li>
+          <li>面试报告</li>
+          <li>复盘重练</li>
+        </ul>
+        <div class="bars" style="border-top:0;padding-top:0;margin-top:4px">
+          <div class="cap" style="font-family:Consolas,monospace;font-size:9.5px;letter-spacing:.22em;color:#9aa0a7">考察点 · 4 / 6</div>
+          <ul class="pts">
+            <li class="on"><i>✓</i>React 状态管理</li>
+            <li class="on"><i>✓</i>组件抽象</li>
+            <li class="on"><i>✓</i>工程化 / 构建</li>
+            <li class="on"><i>✓</i>团队协作</li>
+            <li><i>·</i>性能优化</li>
+            <li><i>·</i>业务理解</li>
+          </ul>
+        </div>
+      </aside>
+    </div></div>
+    <div class="notes">
+      <div><b>一屏一题</b><br>不做聊天记录：聊天气泡会让人一直往下滚，也让人忘记自己在被面试。</div>
+      <div><b>追问缩进在题目下</b><br>面试官听完回答追问一句，是「同一个问题往前推一步」，不该新开一条消息。</div>
+      <div><b>过程中没有分数</b><br>模拟模式不打断、不评分；每题弹 72 分会让人出戏，也会让人开始刷分。</div>
+      <div><b>不用倒计时逼人</b><br>右上只显示「已用 12:34」；到点不再开新题，但当前这题允许答完。</div>
+      <div><b>考察点才是进度</b><br>右侧 4 / 6 比「第 4 题」更有意义，报告也是按它组织的。</div>
+    </div>
+  </section>
+
+  <!-- ============ 10 面试 · 报告 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">10</span>
+      <span class="nm">面试 · 报告（五维 / 逐题 / 薄弱点）</span>
+    </div>
+    <div class="frame"><div class="wf" id="f10">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <a class="back">← 返回主页</a>
+      <h2 class="mod-title">面试报告</h2>
+      <p class="mod-sub">字节跳动 · 前端开发实习生 · 8 题 · 19 分 42 秒</p>
+
+      <div class="dims">
+        <div class="dim">
+          <span class="nm">正确性</span>
+          <span class="tr"><i style="width:80%"></i></span>
+          <span class="sc">4.0</span>
+          <span class="why">三个技术点答对两个，状态管理那题概念混淆。</span>
+        </div>
+        <div class="dim">
+          <span class="nm">完整性</span>
+          <span class="tr"><i style="width:60%"></i></span>
+          <span class="sc">3.0</span>
+          <span class="why">多数回答只讲了做法，没讲结果和验证方式。</span>
+        </div>
+        <div class="dim">
+          <span class="nm">逻辑性</span>
+          <span class="tr"><i style="width:85%"></i></span>
+          <span class="sc">4.3</span>
+          <span class="why">因果链清楚，项目那一题按时间顺序讲得很好。</span>
+        </div>
+        <div class="dim">
+          <span class="nm">细节与真实性</span>
+          <span class="tr"><i style="width:55%"></i></span>
+          <span class="sc">2.8</span>
+          <span class="why">两次说「大概是」，被追问后无法给出具体数字。</span>
+        </div>
+        <div class="dim">
+          <span class="nm">表达清晰度</span>
+          <span class="tr"><i style="width:75%"></i></span>
+          <span class="sc">3.8</span>
+          <span class="why">句子偏长，个别回答超过 40 秒仍未进入重点。</span>
+        </div>
+      </div>
+
+      <div class="weak-wrap">
+        <div class="cap">薄弱点 · 3</div>
+        <div class="weak">
+          <b>缺量化结果</b>
+          <span>4 道题里没有出现任何具体数字</span>
+          <div class="acts"><button class="ghost sm">重练这道</button><button class="ghost sm">看示范答法</button></div>
+        </div>
+        <div class="weak">
+          <b>性能优化讲不清</b>
+          <span>只有结论，没有指标、没有对比</span>
+          <div class="acts"><button class="ghost sm">重练这道</button><button class="ghost sm">去补充资料</button></div>
+        </div>
+        <div class="weak">
+          <b>答题过长</b>
+          <span>平均 52 秒，建议先给结论再展开</span>
+          <div class="acts"><button class="ghost sm">看示范答法</button></div>
+        </div>
+        <a class="more">查看全部 8 题的作答与点评 →</a>
+      </div>
+
+      <div class="rfoot">
+        <button class="primary">只练薄弱题</button>
+        <button class="ghost">再练一次</button>
+        <button class="ghost">生成面试准备清单</button>
+      </div>
+
+      <aside class="flow">
+        <div class="cap">Process</div>
+        <ul class="steps">
+          <li class="done">选岗位与模式</li>
+          <li class="done">面试进行</li>
+          <li class="now">面试报告<span class="st">8 题 · 覆盖 5 / 6</span></li>
+          <li>复盘重练</li>
+        </ul>
+        <div class="sum">
+          <div><b>8</b><span>题数</span></div>
+          <div><b>3.6</b><span>均分</span></div>
+        </div>
+      </aside>
+    </div></div>
+    <div class="notes">
+      <div><b>没有总分</b><br>五维分开给分，每一维右侧跟一句依据——只说「72 分」等于没评。</div>
+      <div><b>逐题回看要带示范</b><br>只说「答得不好」没有价值，每个薄弱点都要有一版更好的答法。</div>
+      <div><b>薄弱点可执行</b><br>三条薄弱点各自带动作：重练、看示范、回上传页补资料。</div>
+      <div><b>只能重练薄弱题</b><br>「只练薄弱题」会带着这 3 题的上下文重新开一场，不用从头再来。</div>
+    </div>
+  </section>
+
+  <!-- ============ 11 档案 · 空态 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">11</span>
+      <span class="nm">档案 · 空态（还能点进来，但告诉你差什么）</span>
+    </div>
+    <div class="frame"><div class="wf" id="f11">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <a class="back">← 返回主页</a>
+      <h2 class="mod-title">匹配档案</h2>
+      <p class="mod-sub">还没有内容。档案不是填出来的，是从简历、岗位、面试三块里长出来的。</p>
+
+      <div class="arch">
+        <div class="big"><b>0</b><span>/ 6 项</span><em>完成度 0%</em></div>
+        <div class="seg"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="note-bar">至少完成「个人简历」，档案才有内容可生成。岗位和面试会让它更准。</div>
+
+        <div class="mrow">
+          <span class="nm">简历</span>
+          <span class="st">还没有上传</span>
+          <div class="act"><button class="ghost sm">去上传</button></div>
+        </div>
+        <div class="mrow">
+          <span class="nm">岗位</span>
+          <span class="st">还没有搜索</span>
+          <div class="act"><button class="ghost sm">去搜索</button></div>
+        </div>
+        <div class="mrow">
+          <span class="nm">面试</span>
+          <span class="st">需要先有目标岗位</span>
+          <div class="act"><button class="ghost sm" style="color:#b9bfc6">暂不可用</button></div>
+        </div>
+      </div>
+
+      <div class="rfoot"><button class="primary">去上传资料</button></div>
+
+      <aside class="flow">
+        <div class="cap">Overview</div>
+        <div class="sum" style="margin-top:18px">
+          <div><b>0</b><span>完成项</span></div>
+          <div><b>0%</b><span>完成度</span></div>
+        </div>
+        <div class="bars">
+          <div class="bar"><div class="lb"><span>最后更新</span><span>—</span></div></div>
+          <div class="bar"><div class="lb"><span>数据来源</span><span>无</span></div></div>
+        </div>
+      </aside>
+    </div></div>
+    <div class="notes">
+      <div><b>能点进来</b><br>不像有些产品把入口灰掉，用户点进来才知道差什么、每项差在哪。</div>
+      <div><b>三行就是三块</b><br>简历 / 岗位 / 面试，状态一行说清，按钮直接带到对应页面。</div>
+      <div><b>面试行是灰的</b><br>没有目标岗位就没法面试，这个依赖关系必须显式说出来，而不是让用户点进去撞墙。</div>
+      <div><b>一句话原则</b><br>空态只说一件事：至少完成简历。不列六条待办清单吓人。</div>
+    </div>
+  </section>
+
+  <!-- ============ 12 档案 · 半满态 ============ -->
+  <section class="board">
+    <div class="board-head">
+      <span class="no">12</span>
+      <span class="nm">档案 · 半满态（有简历有岗位，缺面试）</span>
+    </div>
+    <div class="frame"><div class="wf" id="f12">
+      <div class="grid"></div>
+      <div class="ticks"></div>
+
+      <a class="back">← 返回主页</a>
+      <h2 class="mod-title">匹配档案</h2>
+      <p class="mod-sub">简历和岗位已经进来了，缺一场面试。</p>
+
+      <div class="arch">
+        <div class="big"><b>4</b><span>/ 6 项</span><em>完成度 67%</em></div>
+        <div class="seg"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+
+        <div class="mrow">
+          <span class="nm">简历</span>
+          <span class="st ok">已上传 · 3 段经历 · 2 个项目</span>
+          <div class="act"><button class="ghost sm">查看</button></div>
+        </div>
+        <div class="mrow">
+          <span class="nm">岗位</span>
+          <span class="st ok">已匹配 12 个 · 主攻 1 个</span>
+          <div class="act"><button class="ghost sm">查看</button></div>
+        </div>
+        <div class="mrow">
+          <span class="nm">面试</span>
+          <span class="st">未开始</span>
+          <div class="act"><button class="ghost sm">开始面试</button></div>
+        </div>
+
+        <div class="sect" style="margin-top:30px">技能标签 · 14</div>
+        <div class="tags">
+          <span class="tag">React</span><span class="tag">TypeScript</span><span class="tag">Vite</span>
+          <span class="tag">组件库</span><span class="tag">性能优化</span><span class="tag">Node</span>
+          <span class="tag">可视化</span><span class="tag">跨团队协作</span><span class="tag dim">+ 6</span>
+        </div>
+
+        <div class="sect" style="margin-top:30px">缺口 · 2</div>
+        <div class="gap"><em>缺证据</em><span>「性能优化」在档案里没有可量化的结果</span><div class="act"><button class="ghost sm">去补充</button></div></div>
+        <div class="gap"><em>未覆盖</em><span>目标岗位要求的「服务端渲染」还没有任何经历</span><div class="act"><button class="ghost sm">查看岗位</button></div></div>
+      </div>
+
+      <div class="rfoot">
+        <button class="primary">开始一场模拟面试</button>
+        <button class="ghost">查看完整匹配报告</button>
+      </div>
+
+      <aside class="flow">
+        <div class="cap">Overview</div>
+        <div class="sum" style="margin-top:18px">
+          <div><b>4</b><span>完成项</span></div>
+          <div><b>67%</b><span>完成度</span></div>
+        </div>
+        <div class="bars">
+          <div class="bar"><div class="lb"><span>最后更新</span><span>今天 12:04</span></div></div>
+          <div class="bar"><div class="lb"><span>数据来源</span><span>简历 · 岗位</span></div></div>
+          <div class="bar"><div class="lb"><span>版本</span><span>v3</span></div></div>
+        </div>
+      </aside>
+    </div></div>
+    <div class="notes">
+      <div><b>4 / 6 与 67% 同时出现</b><br>分数是给快速判断的，六格条是给「还差哪两块」的，两个都要。</div>
+      <div><b>缺口分两类</b><br>「缺证据」是你没写，「未覆盖」是真没有——和岗位详情页的三栏是同一套语言，不能各说各的。</div>
+      <div><b>标签只显示 8 个</b><br>剩下收进「+ 6」，避免这里变成一面标签墙。</div>
+      <div><b>底部两个动作</b><br>主按钮是「最该做的那件事」（去面试），次按钮才是查看报告——避免这里变成只读展示页。</div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  "use strict";
+  var stage = document.getElementById('stage');
+  var boards = [].slice.call(document.querySelectorAll('.board'));
+
+  function fit(){
+    var s = Math.min((window.innerWidth - 96) / 1440, (window.innerHeight - 160) / 900, 1);
+    stage.style.setProperty('--s', Math.max(0.26, s));
+  }
+  window.addEventListener('resize', fit);
+  fit();
+
+  // 顶部跳转
+  var params = new URLSearchParams(location.search);
+  if (params.get('shot')) { document.body.classList.add('shot'); stage.style.setProperty('--s', 1); return; }
+
+  document.getElementById('tabs').innerHTML = boards.map(function(b,i){
+    return '<button data-i="'+i+'">'+['01 开场','02 完成态','03 主页','04 上传','05 选择方式','06 确认信息','07 岗位结果','08 匹配详情','09 面试中','10 报告','11 档案空态','12 档案半满'][i]+'</button>';
+  }).join('');
+  [].forEach.call(document.querySelectorAll('#tabs button'), function(btn){
+    btn.addEventListener('click', function(){
+      boards[+btn.dataset.i].scrollIntoView({behavior:'smooth', block:'start'});
+    });
+  });
+
+  // 播放开场动画
+  var f1 = document.getElementById('f1');
+  var play = document.getElementById('playBtn');
+  play.addEventListener('click', function(){
+    f1.classList.remove('played');
+    void f1.offsetWidth;
+    f1.classList.add('played');
+    play.textContent = '↺ 重播';
+  });
+
+  // 主页状态切换（显隐由 #f3[data-state] 的 CSS 接管）
+  [].forEach.call(document.querySelectorAll('#stateBtns button'), function(btn){
+    btn.addEventListener('click', function(){
+      [].forEach.call(document.querySelectorAll('#stateBtns button'), function(b){ b.classList.remove('on'); });
+      btn.classList.add('on');
+      document.getElementById('f3').dataset.state = btn.dataset.s;
+    });
+  });
+})();
+</script>
+</body>
+</html>

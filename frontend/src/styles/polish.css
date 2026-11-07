@@ -1,0 +1,311 @@
+/* ============================================================
+   UI 统一层：只做「跨页面的一致性」和「交互反馈」，
+   不碰各页自己的布局。最后引入，用于覆盖前面的零散定义。
+   ============================================================ */
+
+/* ---------- 1. 按钮：ghost 与 primary 并排时不再一高一低 ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 15px;
+  transition:
+    border-color var(--dur-1) ease,
+    color var(--dur-1) ease,
+    background var(--dur-1) ease;
+}
+
+.btn.primary {
+  min-height: 42px;
+  padding: 0 22px;
+}
+
+.btn.sm {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 10px;
+}
+
+.btn:disabled,
+.btn.primary:disabled {
+  background: #f4f5f7;
+  border: 1px solid var(--line);
+  color: #b9bfc6;
+  cursor: not-allowed;
+}
+
+.btn.primary:disabled:hover {
+  background: #f4f5f7;
+}
+
+/* ---------- 2. 键盘焦点：所有可点元素统一 ---------- */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+.card:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+/* ---------- 3. 可点区域的反馈 ---------- */
+.opt {
+  transition:
+    border-color var(--dur-1) ease,
+    box-shadow var(--dur-1) ease;
+}
+
+.opt:hover {
+  border-color: #c9ced6;
+  box-shadow: 0 14px 30px -26px rgba(16, 24, 64, 0.4);
+}
+
+.opt.dim:hover {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.arow {
+  transition: background var(--dur-1) ease;
+}
+
+.arow:hover {
+  background: #fafbfd;
+}
+
+.jrow {
+  margin-left: -12px;
+  margin-right: -12px;
+  padding-left: 12px;
+  padding-right: 12px;
+  border-radius: var(--r-sm);
+}
+
+.card {
+  cursor: pointer;
+}
+
+/* 之前用 span 当按钮的两处，现在是真按钮 */
+button.q-esc {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* ---------- 4. 路由切换的轻过渡 ---------- */
+@keyframes pageIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.screen {
+  animation: pageIn var(--dur-3) var(--ease) both;
+}
+
+/* 版式按 1440 设计的：宽屏上居中留白，而不是把内容拉散
+   （截图里 1680 宽时，内容与右侧流程轨之间空出了一大条） */
+.screen {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+/* ---------- 5. 窄屏：缩放而不是横向溢出 ----------
+   之前用 min-width 硬扛，结果窄窗口里开场标题被推出屏幕。
+   现在改成：字随窗口缩、卡片换行、右侧流程轨落到下方。 */
+.intro-title {
+  font-size: clamp(48px, 7.6vw, 108px);
+}
+
+.display {
+  font-size: clamp(32px, 3.6vw, 50px);
+}
+
+@media (max-width: 1180px) {
+  .home-cards {
+    flex-wrap: wrap;
+    gap: 18px;
+  }
+
+  .card {
+    width: min(322px, calc(50vw - 40px));
+  }
+
+  .flow {
+    position: static;
+    width: auto;
+    margin-top: 34px;
+  }
+
+  .up-body {
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  .up-right,
+  .up-left,
+  .qa-main,
+  .arch,
+  .jlist,
+  .cond,
+  .fbar,
+  .cols,
+  .next,
+  .rep-dims,
+  .rep-weak,
+  .iv-body,
+  .cmp,
+  .sheet {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .sheet {
+    min-height: 0;
+  }
+
+  .draft-body {
+    flex-direction: column;
+  }
+
+  .draft-side {
+    width: 100%;
+  }
+}
+
+/* ---------- 7. 页面头统一：加一条章节线 ----------
+   原来每页就是「32px 标题 + 一行灰字」，没有章节感。
+   统一成：顶部细线 + 左侧 56px 实线压头 + 更大的标题。 */
+.page-head {
+  position: relative;
+  margin-top: 6px;
+  padding-top: 26px;
+  border-top: 1px solid var(--line);
+  animation: rise 0.55s var(--ease) both;
+}
+
+.page-head::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -1px;
+  width: 56px;
+  height: 2px;
+  background: var(--ink);
+}
+
+.page-title {
+  font-size: clamp(30px, 2.6vw, 38px);
+  letter-spacing: -0.02em;
+}
+
+.page-sub {
+  margin-top: 12px;
+  max-width: 560px;
+  line-height: 1.7;
+}
+
+/* 内容区跟着晚一点进，形成层次 */
+.up-body,
+.qa-main,
+.jlist,
+.cols,
+.arch,
+.iv-body,
+.rep-dims,
+.cmp,
+.sheet,
+.opt-wrap {
+  animation: rise 0.55s var(--ease) 0.06s both;
+}
+
+/* ---------- 6. 框线质感 ----------
+   默认那种 #eee 实线边框是「网页默认感」的来源。
+   这里换成：更暖的浅线 + 极淡的纸面投影 + 两端渐隐的分割线。 */
+
+.up-sec,
+.q,
+.iv-card,
+.opt,
+.sheet,
+.modal,
+.cond-form,
+.cmp {
+  border-color: var(--line-soft);
+  box-shadow:
+    0 1px 1px rgba(16, 24, 64, 0.03),
+    0 12px 26px -24px rgba(16, 24, 64, 0.42);
+}
+
+/* 卡片：1.3px 纯黑压得太死，改成 1px + 一层极淡投影 */
+.card {
+  border-width: 1px;
+  box-shadow: 0 1px 2px rgba(16, 24, 64, 0.05);
+}
+
+.card:hover {
+  box-shadow:
+    0 1px 2px rgba(16, 24, 64, 0.05),
+    0 22px 36px -28px rgba(16, 24, 64, 0.42);
+}
+
+/* 分割线：中间实、两端渐隐，比一条死线高级 */
+.meta,
+.page-head {
+  border-top: 1px solid rgba(20, 20, 20, 0.14);
+  border-image: linear-gradient(
+      90deg,
+      transparent 0,
+      rgba(20, 20, 20, 0.16) 12%,
+      rgba(20, 20, 20, 0.16) 88%,
+      transparent 100%
+    )
+    1;
+}
+
+/* 输入框：静止时几乎看不见，聚焦才出现 */
+.url-row input,
+.story,
+.q-free input,
+.iv-answer,
+.field,
+textarea,
+select {
+  border-color: var(--line-soft);
+}
+
+/* 角标再轻一点，像印刷的定位线而不是 UI 装饰 */
+.ticks {
+  opacity: 0.42;
+}
+
+/* ---------- 8. 滚动条（Windows 默认那条很丑） ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c9ced6 transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d3d8de;
+  border-radius: 6px;
+  border: 3px solid #fff;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #b3b9c0;
+}

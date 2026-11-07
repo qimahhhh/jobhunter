@@ -1,0 +1,11 @@
+Ultra-minimal editorial website opening screen, wide 16:10 landscape composition, pure white background, flat vector.
+
+Centered in the page: the wordmark "JobHunter" set in a tight geometric sans-serif, extremely large (about one sixth of the frame height), where "Job" is solid black and "Hunter" is rendered as thin hollow outlined letters with a hairline black stroke, followed by a small light-grey period.
+
+Top-left: a single bold letter "J" as a small logo mark.
+Top-right: only a small thin circular avatar outline with the short label "登录" placed to its left. No paper corner, no folded corner, no dog-ear, no triangle, no shadow, no peel.
+Bottom center: a tiny monospaced label "SCROLL" under a thin outlined mouse icon.
+Four thin L-shaped register marks inset 26px from each corner.
+Three extremely faint vertical hairlines dividing the width into four equal columns.
+
+No gradients, no glow, no color accents, no 3D render, no photography. Swiss graphic design, strict alignment, generous white space, high contrast black on white, precise geometry, looks like a Figma artboard of a real product website.

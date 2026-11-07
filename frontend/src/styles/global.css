@@ -1,0 +1,425 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ---------- 屏幕骨架 ---------- */
+.screen {
+  position: relative;
+  min-height: 100vh;
+  padding: var(--pad-y) var(--pad-x);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 四角定位角标 */
+.ticks {
+  position: absolute;
+  inset: 26px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.55;
+  background:
+    linear-gradient(var(--ink), var(--ink)) left top / 16px 1px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) left top / 1px 16px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) right top / 16px 1px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) right top / 1px 16px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) left bottom / 16px 1px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) left bottom / 1px 16px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) right bottom / 16px 1px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) right bottom / 1px 16px no-repeat;
+}
+
+/* 竖栏细线 */
+.gridlines {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: linear-gradient(to right, rgba(20, 20, 20, 0.055) 1px, transparent 1px);
+  background-size: calc((100% - 2 * var(--pad-x)) / 4) 100%;
+  background-position: var(--pad-x) 0;
+}
+
+/* 内容层压在装饰层之上（不用 position，避免覆盖 .edge 等的绝对定位） */
+.screen > *:not(.ticks):not(.gridlines) {
+  z-index: 2;
+}
+
+/* ---------- 顶部 ---------- */
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-height: 64px;
+}
+
+.logo {
+  font: 700 24px/1 var(--font-display);
+  letter-spacing: -0.04em;
+  color: var(--ink);
+}
+
+.userblock {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+}
+
+.userblock .name {
+  font: 600 22px/1 var(--font-body);
+  letter-spacing: 0.16em;
+}
+
+.userblock .login {
+  font-size: var(--fs-label);
+  letter-spacing: 0.14em;
+  color: var(--ink-2);
+}
+
+.userblock .avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1.2px solid var(--ink-3);
+  background: #fff;
+  color: var(--ink-3);
+  display: grid;
+  place-items: center;
+}
+
+/* ---------- 排版 ---------- */
+.overline {
+  font: 500 var(--fs-micro) / 1 var(--font-mono);
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.display {
+  margin: 16px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.06;
+}
+
+.display em {
+  font-style: normal;
+  color: transparent;
+  -webkit-text-stroke: 1.1px var(--ink);
+}
+
+.tagline {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.tagline i {
+  width: 44px;
+  height: 1px;
+  background: #d7dbe0;
+}
+
+/* ---------- 按钮 ---------- */
+.btn {
+  border: 1px solid rgba(20, 20, 20, 0.16);
+  background: #fbfbfa;
+  border-radius: var(--r-sm);
+  padding: 9px 14px;
+  font: 500 var(--fs-label) / 1 var(--font-body);
+  letter-spacing: 0.1em;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-1) ease,
+    color var(--dur-1) ease,
+    background var(--dur-1) ease;
+}
+
+.btn:hover {
+  border-color: var(--ink);
+  background: #fff;
+  color: var(--ink);
+}
+
+.btn.primary {
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--ink);
+  color: #fff;
+  padding: 14px 22px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  transition: background var(--dur-1) ease;
+}
+
+.btn.primary:hover {
+  background: var(--brand);
+}
+
+.btn:focus-visible,
+.edge:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* ---------- 边缘圆钮 ----------
+   和右上角登录键同一套：细描边 + 极浅底色托住，悬停整颗反白。 */
+.edge {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 6;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--ink);
+  background: #fbfbfa;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    background var(--dur-1) ease,
+    color var(--dur-1) ease,
+    box-shadow var(--dur-2) ease,
+    transform var(--dur-2) var(--ease);
+}
+
+.edge:hover {
+  background: var(--ink);
+  color: #fff;
+  box-shadow: 0 12px 26px -16px rgba(16, 24, 64, 0.5);
+}
+
+.edge:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.edge.left {
+  left: 30px;
+}
+
+.edge.right {
+  right: 30px;
+}
+
+/* ---------- 页脚信息条 ---------- */
+.meta {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font: 500 9px/1 var(--font-mono);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+/* ---------- 主页 ---------- */
+.home-main {
+  margin-top: 56px;
+  text-align: center;
+}
+
+.home-cards {
+  margin-top: 62px;
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+}
+
+.card {
+  position: relative;
+  width: 322px;
+  height: 304px;
+  padding: 24px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  border: 1.3px solid var(--ink);
+  border-radius: var(--r-xl);
+  background: #fff;
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    transform var(--dur-1) ease,
+    box-shadow var(--dur-1) ease;
+}
+
+.card:nth-child(1):hover {
+  transform: translateY(-12px) rotate(-0.8deg);
+}
+
+.card:nth-child(2):hover {
+  transform: translateY(-12px) rotate(0.8deg);
+}
+
+.card:nth-child(3):hover {
+  transform: translateY(-12px) rotate(-0.8deg);
+}
+
+.card:hover {
+  box-shadow: 0 22px 36px -28px rgba(16, 24, 64, 0.42);
+  z-index: 3;
+}
+
+.card .no {
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line);
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.16em;
+  color: var(--ink-4);
+}
+
+.card .art {
+  margin: 14px 0 0;
+  height: 98px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card h3 {
+  margin: 16px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+
+.card p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+
+.card .go {
+  margin-top: auto;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--ink-4);
+}
+
+.card:hover .go {
+  color: var(--ink);
+}
+
+.card-fold {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 104px;
+  height: 104px;
+  transform-origin: 100% 100%;
+  transform: scale(0.32);
+  background: linear-gradient(135deg, #d3dbf2 0%, #e8edfa 46%, #fdfdff 100%);
+  clip-path: polygon(100% 100%, 100% 0, 0 100%);
+  transition: transform var(--dur-2) ease;
+  pointer-events: none;
+}
+
+.card:hover .card-fold {
+  transform: scale(1);
+}
+
+/* ---------- 开场 ---------- */
+.intro {
+  display: grid;
+  place-items: center;
+}
+
+.intro-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-hero);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  text-align: center;
+  animation: introTitle 1700ms cubic-bezier(0.33, 0, 0.2, 1) both;
+}
+
+@keyframes introTitle {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.99);
+  }
+  32% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-18px) scale(1);
+  }
+}
+
+.intro-title em {
+  font-style: normal;
+  color: transparent;
+  -webkit-text-stroke: 1.3px var(--ink);
+}
+
+.intro-title b {
+  font-weight: inherit;
+  color: #b9bec4;
+}
+
+.fade-in {
+  animation: rise 0.8s var(--ease) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- 动态偏好 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

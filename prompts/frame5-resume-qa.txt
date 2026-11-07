@@ -1,0 +1,18 @@
+Ultra-minimal editorial web app screen, wide 16:10 landscape, pure white background, flat vector, Swiss design.
+
+Top left: a small "← 返回上一步" link, below it the large page title "确认信息" and one line of small grey helper text.
+
+LEFT SIDE: one large white question card with a thin 1px light grey border and 14px rounded corners.
+Inside the card, top row: tiny monospaced counter "问题 03 / 08" on the left and a small ghost button "跳过" on the right.
+Below, a large bold Chinese question in two lines: "「job-hunter 前端」这个项目里，你具体负责哪一部分？"
+Below the question, a light grey inset panel with a thin black left border containing one line of small text starting with the bold word "依据" followed by grey text.
+Below that, a row of three pill-shaped outline buttons: "独立完成", "与人协作", "只做了其中一块".
+Below the buttons, one wide empty input field with light grey placeholder text.
+Bottom row of the card: small grey link text on the left, and a solid black button "确认并继续" on the right.
+Under the card: a small monospaced caption "已确认 2 条" above two rows separated by hairlines, each row with a bold short label and a grey sentence.
+
+RIGHT SIDE: a vertical process rail of five entries joined by a hairline: two completed entries with filled black dots, the third entry "确认信息" highlighted with a bold label and a small grey sub-label "3 / 8", then two light grey pending entries. Below the rail, a thin divider and two large numerals side by side with tiny uppercase captions underneath.
+
+Four thin L-shaped register marks inset from the corners, faint vertical column hairlines.
+
+No gradients, no glow, no color accents, no 3D, no photography. Strict grid, precise spacing, monochrome black on white.

@@ -1,0 +1,15 @@
+Ultra-minimal editorial web app screen, wide 16:10 landscape, pure white background, flat vector, Swiss design.
+
+Top left: a small "← 返回主页" link, the large page title "岗位" and one line of small grey helper text. Under the title a single row of four small rounded outline chips: "前端开发", "上海", "实习", "≥ 200 / 天", with a small text button "修改条件" aligned right.
+
+Below the chips a thin filter bar with small grey text on the left ("94 已核验", "128 全部") and three sort options on the right, one underlined in black.
+
+LEFT SIDE main area: four job rows separated by hairlines, each row shows on the left a bold job title like "字节跳动 · 前端开发实习生", a small grey meta line "上海 徐汇 · 200–300 / 天 · 实习 · 本科及以上", and a third tiny line beginning with a small coloured dot and the words "已核验 · 实习僧 · 采集于 2 天前"; on the right of each row a large thin numeral score (82, 79, 74, 71) with a tiny "匹配" caption under it. The third row's dot is amber and its line says "来源失效"; the fourth row's dot is grey "待核验".
+
+At the bottom of the list: pagination with the numbers 1 2 3 … 7, page 1 in a black outlined box, and a small "下一页".
+
+RIGHT SIDE: a vertical process rail of five entries joined by a hairline — "设定条件" completed with a filled black dot, "搜索结果" highlighted in bold with a tiny grey sub-label, then three light grey pending entries "匹配详情", "岗位对比", "决策".
+
+Four thin L-shaped register marks inset from the corners, faint vertical column hairlines.
+
+No gradients, no glow, no colour except one small green dot and one amber dot, no 3D, no photography. Strict grid, precise spacing, monochrome black on white.

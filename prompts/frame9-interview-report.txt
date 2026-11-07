@@ -1,0 +1,15 @@
+Ultra-minimal editorial web app screen, wide 16:10 landscape, pure white background, flat vector, Swiss design.
+
+Top left: a small "← 返回主页" link, below it the large page title "面试报告" and one small grey line "字节跳动 · 前端开发实习生 · 8 题 · 19 分 42 秒".
+
+LEFT SIDE upper block: five rows separated by hairlines, each row showing a short Chinese dimension label on the left, a very thin horizontal progress bar in the middle filled with solid black to varying lengths, a two-digit score aligned right, and one short sentence of small grey evidence text at the far right. The five labels are "正确性", "完整性", "逻辑性", "细节与真实性", "表达清晰度".
+
+LEFT SIDE lower block: a small uppercase caption "薄弱点 · 3", then three rows separated by hairlines; each row has a bold short problem label on the left, one grey sentence in the middle, and two small outline buttons on the right. Below the rows a small grey text link "查看全部 8 题的作答与点评 →".
+
+Bottom left: a solid black button "只练薄弱题" next to two small outline ghost buttons "再练一次" and "生成面试准备清单".
+
+RIGHT SIDE: a vertical process rail of four entries joined by a hairline — two completed filled dots, the third "面试报告" bold with a tiny grey sub-label, one light grey pending entry. Below the rail a thin divider and two large numerals side by side with tiny uppercase captions underneath.
+
+Four thin L-shaped register marks inset from the corners, faint vertical column hairlines.
+
+No gradients, no glow, no colour accents, no 3D, no photography. Strict grid, precise spacing, monochrome black on white.

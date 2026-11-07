@@ -1,0 +1,13 @@
+Ultra-minimal editorial web app screen, wide 16:10 landscape, pure white background, flat vector, Swiss design.
+
+Top left: a small "← 返回主页" link, below it the large page title "简历" and one line of small grey helper text "先决定：写一份新的，还是改一份已有的。"。
+
+LEFT SIDE: two identical large option cards side by side, thin 1px light grey border, 14px rounded corners, white fill, each with generous padding.
+Left card, tiny monospaced kicker "01 / CREATE", heading "生成一份新简历", two short lines of small grey body text, a small grey requirement line near the bottom, and a full-width solid black button "开始生成".
+Right card, kicker "02 / REVISE", heading "修改已有简历", two short lines of small grey body text, a small grey line naming an uploaded PDF, and a full-width solid black button "开始诊断".
+
+RIGHT SIDE: a vertical process rail with five entries connected by a hairline, each entry a small circle and a label: "选择方式", "读取档案", "确认信息", "生成草稿", "检查与导出". The first entry has a filled black dot and bold label with a tiny grey sub-label, the rest are light grey hollow dots.
+
+Four thin L-shaped register marks inset from the corners, faint vertical column hairlines, thin horizontal rules separating blocks.
+
+No gradients, no glow, no color accents, no 3D, no photography. Strict grid, precise spacing, monochrome black on white, looks like a Figma artboard of a real product.

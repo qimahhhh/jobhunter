@@ -1,0 +1,15 @@
+Ultra-minimal editorial web app screen, wide 16:10 landscape, pure white background, flat vector, Swiss design.
+
+A full-page upload form titled "建立求职档案" at the top left, with a small "← 返回主页" link above it and one line of small grey helper text under the title.
+
+LEFT SIDE: three stacked white panels with thin 1px light-grey borders and 12px rounded corners.
+Panel one, header "01 个人简历" with a small green outlined tag "已上传"; inside a file row with a small PDF icon, the file name and a grey meta line, and two small ghost buttons on the right.
+Panel two, header "02 项目经历" with a small grey tag "1 / 6"; inside one project row with a small circular "GH" badge, a repository name, a grey meta line, a solid black pill tag "主项目" and a ghost button; below that a row of two large dashed-border add buttons, "+ 粘贴 GitHub 链接" and "+ 上传 ZIP 压缩包".
+Panel three, header "03 主观经历" with a small ghost button on the right; inside a large empty textarea with light grey placeholder text, and a tiny footer line under it.
+
+RIGHT SIDE: a huge numeral "3" with a small "/ 6" next to it, above a vertical checklist of six items separated by hairlines, four of them with filled black dots and two empty, and two lines of tiny grey hint text below.
+
+BOTTOM: a thin horizontal hairline spanning the content width, tiny monospaced "已自动保存" on the left, and a black filled button "完成，返回主页" on the right.
+Four thin L-shaped register marks inset from the corners, faint vertical column hairlines.
+
+No gradients, no glow, no color accents except one small green tag, no 3D, no photography. Strict grid, precise spacing, monochrome black on white.

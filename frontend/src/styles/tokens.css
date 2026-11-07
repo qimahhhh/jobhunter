@@ -1,0 +1,44 @@
+:root {
+  /* 颜色 */
+  --ink: #141414;
+  --ink-2: #5d646b;
+  --ink-3: #6a7278;
+  --ink-4: #8a9198;
+  --line: #e6e5e0;
+  --line-soft: rgba(20, 20, 20, 0.09);
+  --hair: #c2c8ce;
+  --paper: #ffffff;
+  --brand: #2559d8;
+  --ok: #2f7d4a;
+  --warn: #c98a2f;
+  --danger: #c0533a;
+
+  /* 字体 */
+  --font-display: "Bahnschrift", "Segoe UI", sans-serif;
+  --font-body: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "Consolas", "SFMono-Regular", ui-monospace, monospace;
+
+  /* 字号 */
+  --fs-hero: 108px;
+  --fs-h1: 50px;
+  --fs-h2: 32px;
+  --fs-h3: 24px;
+  --fs-body: 12.5px;
+  --fs-label: 10.5px;
+  --fs-micro: 9.5px;
+
+  /* 间距 / 圆角 */
+  --pad-x: 58px;
+  --pad-y: 32px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 14px;
+  --r-xl: 16px;
+
+  /* 动效 */
+  --dur-1: 180ms;
+  --dur-2: 240ms;
+  --dur-3: 280ms;
+  --dur-4: 300ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}

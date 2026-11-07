@@ -1,0 +1,293 @@
+.userblock {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+/* ---------- 右上角账户 ---------- */
+.account {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* 未登录：描边胶囊，悬停反白。比"灰字 + 细圈"有存在感。 */
+.acc-login {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 20px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: #fbfbfa;
+  font: 500 11px/1 var(--font-body);
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  color: var(--ink);
+  transition:
+    background var(--dur-1) ease,
+    color var(--dur-1) ease,
+    box-shadow var(--dur-2) ease;
+}
+
+.account:hover .acc-login {
+  background: var(--ink);
+  color: #fff;
+  box-shadow: 0 12px 26px -16px rgba(16, 24, 64, 0.5);
+}
+
+.account:active .acc-login {
+  transform: scale(0.97);
+}
+
+/* 已登录：实心圆 + 名字 */
+.acc-name {
+  font: 600 13px/1 var(--font-body);
+  letter-spacing: 0.14em;
+}
+
+.acc-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font: 600 13px/1 var(--font-body);
+  transition: transform var(--dur-2) var(--ease);
+}
+
+.account:hover .acc-avatar {
+  transform: scale(1.06);
+}
+
+button.logo {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* ---------- 标志 ---------- */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+}
+
+.brand-mark {
+  flex: 0 0 auto;
+  transition: transform var(--dur-3) var(--ease);
+}
+
+.brand:hover .brand-mark {
+  transform: rotate(45deg);
+}
+
+.brand-word {
+  font: 600 11px/1 var(--font-body);
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* 卡片外层负责入场动画，卡片自己保留 hover 的 transform */
+.card-wrap {
+  display: flex;
+}
+
+/* ---------- 字标 ---------- */
+.wm {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.wm-top {
+  font-family: var(--font-display);
+  font-weight: 300;
+  text-transform: uppercase;
+  /* 字距靠 text-indent 补回来，否则整行会视觉偏左 */
+  letter-spacing: 0.52em;
+  text-indent: 0.52em;
+  line-height: 1;
+}
+
+.wm-main {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.015em;
+  line-height: 1;
+}
+
+.wm-lg .wm-top {
+  font-size: clamp(20px, 2.6vw, 38px);
+}
+
+.wm-lg .wm-main {
+  font-size: clamp(56px, 7.2vw, 104px);
+}
+
+.wm-md .wm-top {
+  font-size: clamp(14px, 1.5vw, 20px);
+  letter-spacing: 0.44em;
+  text-indent: 0.44em;
+}
+
+.wm-md .wm-main {
+  font-size: clamp(34px, 4.2vw, 58px);
+}
+
+/* 开场：标志 + 字标 */
+.intro-mark {
+  margin-bottom: 30px;
+  color: var(--ink);
+  animation: rise 0.9s var(--ease) 0.15s both;
+}
+
+/* 整组上提：文字放在几何中心会显得偏低，这是排版里的常规补偿 */
+.intro-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateY(-4.5vh);
+}
+
+.intro .wm {
+  animation: introTitle 1700ms cubic-bezier(0.33, 0, 0.2, 1) 0.1s both;
+}
+
+/* 主页 hero */
+.home-mark {
+  margin-top: 18px;
+}
+
+.home-mark .wm {
+  align-items: center;
+}
+
+/* ---------- 开场 ---------- */
+.screen.intro {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  cursor: pointer;
+}
+
+.intro-corner {
+  position: absolute;
+  top: 40px;
+  z-index: 3;
+}
+
+.intro-corner.tl {
+  left: var(--pad-x);
+}
+
+.intro-corner.tr {
+  right: var(--pad-x);
+}
+
+.intro-corner .logo {
+  font-size: 24px;
+}
+
+.scroll-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink-2);
+}
+
+.scroll-hint .mouse {
+  width: 24px;
+  height: 38px;
+  border: 1.2px solid var(--ink-4);
+  border-radius: 12px;
+  position: relative;
+  animation: mouseBob 1.9s ease-in-out 1.6s infinite;
+}
+
+@keyframes mouseBob {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translateY(7px);
+    opacity: 1;
+  }
+}
+
+.scroll-hint .mouse::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 2px;
+  height: 7px;
+  background: var(--ink-4);
+  transform: translateX(-50%);
+  border-radius: 1px;
+}
+
+.scroll-hint .tx {
+  font-size: 11px;
+  letter-spacing: 0.24em;
+}
+
+/* ---------- 返回 ---------- */
+.back {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: 400 11px/1 var(--font-body);
+  letter-spacing: 0.18em;
+  color: var(--ink-3);
+}
+
+.back:hover {
+  color: var(--ink);
+}
+
+/* ---------- 占位页 ---------- */
+.ph-main {
+  margin-top: 72px;
+}
+
+.ph-title {
+  margin: 18px 0 0;
+  font-family: var(--font-display);
+  font-size: 48px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.ph-note {
+  margin: 16px 0 0;
+  max-width: 520px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--ink-2);
+}

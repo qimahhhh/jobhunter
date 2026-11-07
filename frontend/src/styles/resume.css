@@ -1,0 +1,355 @@
+/* ---------- 页面头 ---------- */
+.page-head {
+  margin-top: 24px;
+}
+
+.page-title {
+  margin: 0;
+  font: 600 32px/1.2 var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.page-sub {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* ---------- 右侧流程轨 ---------- */
+.flow {
+  position: absolute;
+  right: var(--pad-x);
+  top: 158px;
+  width: 300px;
+  z-index: 3;
+}
+
+.flow .cap {
+  font: 500 9.5px/1 var(--font-mono);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.steps {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+}
+
+.steps li {
+  position: relative;
+  padding-left: 28px;
+  margin-bottom: 22px;
+  font-size: 12.5px;
+  letter-spacing: 0.1em;
+  color: #a7aeb6;
+}
+
+.steps li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--hair);
+  background: #fff;
+}
+
+.steps li::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 17px;
+  bottom: -18px;
+  width: 1px;
+  background: var(--line);
+}
+
+.steps li:last-child::after {
+  display: none;
+}
+
+.steps li.done {
+  color: var(--ink);
+}
+
+.steps li.done::before {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.steps li.now {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.steps li.now::before {
+  background: #fff;
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px rgba(20, 20, 20, 0.09);
+}
+
+.steps li .st {
+  display: block;
+  margin-top: 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  font-weight: 400;
+  color: var(--ink-4);
+}
+
+.sum {
+  margin-top: 26px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 26px;
+}
+
+.sum div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sum b {
+  font: 600 22px/1 var(--font-display);
+}
+
+.sum span {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+/* ---------- 选择方式 ---------- */
+.opt-wrap {
+  margin-top: 28px;
+  display: flex;
+  gap: 24px;
+  width: 880px;
+  max-width: calc(100% - 360px);
+}
+
+.opt {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 26px 26px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: #fff;
+}
+
+.opt .kicker {
+  font: 500 9.5px/1 var(--font-mono);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.opt h3 {
+  margin: 12px 0 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.opt p {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.85;
+  color: var(--ink-3);
+}
+
+.opt .need {
+  margin-top: auto;
+  padding-top: 18px;
+  font-size: 10.5px;
+  line-height: 1.7;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+}
+
+.opt .btn.primary {
+  margin-top: 16px;
+  width: 100%;
+  padding: 14px 0;
+}
+
+.opt.dim {
+  background: #fafbfc;
+}
+
+/* 不可用态不做成按钮：一个白底描边的方块压在浅灰卡上，
+   会和卡片圆角打架，看起来像外挂了一条 footer。改成带下划线的文字链。 */
+.opt-link {
+  align-self: flex-start;
+  margin-top: 18px;
+  padding: 0 0 4px;
+  border: 0;
+  border-bottom: 1px solid var(--hair);
+  background: none;
+  cursor: pointer;
+  font: 500 11px/1 var(--font-body);
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+  transition: color var(--dur-1) ease, border-color var(--dur-1) ease;
+}
+
+.opt-link:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+/* ---------- 问答卡 ---------- */
+.qa-main {
+  margin-top: 26px;
+  width: 800px;
+  max-width: calc(100% - 360px);
+}
+
+.q {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: #fff;
+  padding: 26px 30px 24px;
+}
+
+.q-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.q .cnt {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.18em;
+  color: var(--ink-4);
+}
+
+.q h3 {
+  margin: 20px 0 0;
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.q-basis {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  background: #f7f8fa;
+  border-left: 2px solid var(--ink);
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+
+.q-basis b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.q-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.q-opts button {
+  border: 1px solid #dfe4ea;
+  background: #fff;
+  border-radius: var(--r-sm);
+  padding: 11px 16px;
+  font: 500 11.5px/1 var(--font-body);
+  letter-spacing: 0.08em;
+  color: #2b3138;
+  cursor: pointer;
+  transition: border-color var(--dur-1) ease;
+}
+
+.q-opts button:hover {
+  border-color: var(--ink);
+}
+
+.q-free {
+  margin-top: 12px;
+}
+
+.q-free input {
+  width: 100%;
+  height: 46px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: #fafbfd;
+  padding: 0 14px;
+  font: 400 12px/1 var(--font-body);
+  color: var(--ink);
+  outline: none;
+}
+
+.q-free input:focus {
+  border-color: var(--ink);
+  background: #fff;
+}
+
+.q-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 22px;
+}
+
+.q-esc {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--ink-4);
+  cursor: pointer;
+}
+
+.q-esc:hover {
+  color: var(--ink);
+}
+
+/* ---------- 已确认列表 ---------- */
+.done-list {
+  margin-top: 26px;
+}
+
+.done-list .cap {
+  font: 500 9.5px/1 var(--font-mono);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.done-list ul {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+}
+
+.done-list li {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f2f6;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+.done-list li b {
+  min-width: 72px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.done-card h3 {
+  margin-top: 18px;
+}

@@ -1,0 +1,15 @@
+Ultra-minimal editorial web app screen, wide 16:10 landscape, pure white background, flat vector, Swiss design.
+
+Top left: a small "← 返回主页" link, below it the large page title "匹配档案" and one line of small grey helper text.
+
+LEFT SIDE: near the top a very large thin numeral "0" followed by a small "/ 6 项" and a small grey "完成度 0%". Under it a segmented progress bar made of six thin equal grey rectangles with small gaps, all empty.
+Below the bar a light grey inset note block with a thin black left border and one sentence of small text.
+Below that: three rows separated by hairlines, each row with a short bold Chinese label on the left ("简历", "岗位", "面试"), a small grey status sentence in the middle, and one small outline ghost button aligned right on each row.
+
+At the bottom of the left area: one solid black button "去上传资料".
+
+RIGHT SIDE: a small uppercase caption "OVERVIEW", then two large numerals side by side with tiny uppercase captions underneath, then a thin divider and three short label-value rows in small grey monospaced type.
+
+Four thin L-shaped register marks inset from the corners, faint vertical column hairlines.
+
+No gradients, no glow, no colour accents, no 3D, no photography. Strict grid, generous white space, monochrome black on white.

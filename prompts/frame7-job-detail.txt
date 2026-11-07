@@ -1,0 +1,20 @@
+Ultra-minimal editorial web app screen, wide 16:10 landscape, pure white background, flat vector, Swiss design.
+
+Top left: a small "← 返回结果列表" link. Below it a large bold heading "字节跳动 · 前端开发实习生" and one small grey meta line with company location, salary, "实习", the source "实习僧", a small green dot and "已核验 · 采集于 2 天前".
+
+Under the heading: one row of four small outlined chips with a check mark and short labels "城市 上海", "类型 实习", "薪资 ≥ 200/天", "学历 本科".
+
+Below the chips: three equal columns separated by generous space, each with a tiny uppercase grey caption and a short list separated by hairlines.
+First column caption "满足 · 3" with three rows: "✓ React / TypeScript", "✓ 组件库搭建", "✓ Vite 工程化".
+Second column caption "缺证据 · 2" with two rows: "? 性能优化（档案里没写）", "? 团队协作证明".
+Third column caption "不满足 · 1" with one row: "✕ 3 年以上经验".
+
+Under the columns a hairline, then a row of three short suggestion blocks each with a tiny uppercase label above a sentence: "简历强调", "面试准备", "去补充".
+
+At the bottom: a solid black button "生成定制简历" next to two small outline ghost buttons "加入对比" and "不考虑".
+
+RIGHT SIDE: a vertical process rail of five entries joined by a hairline — two completed filled dots, the third "匹配详情" highlighted bold with a tiny grey sub-label, two light grey pending ones. Below the rail a thin divider and three horizontal progress bars with tiny labels "技能 82", "项目 71", "经历 48".
+
+Four thin L-shaped register marks inset from the corners, faint vertical column hairlines.
+
+No gradients, no glow, no colour except one small green dot, no 3D, no photography. Strict grid, precise spacing, monochrome black on white.

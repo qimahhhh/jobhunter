@@ -1,0 +1,16 @@
+Ultra-minimal editorial web app screen, wide 16:10 landscape, pure white background, flat vector, Swiss design.
+
+Top left: a small "← 返回主页" link, below it the large page title "匹配档案" and one line of small grey helper text.
+
+LEFT SIDE: a very large numeral "4" followed by small "/ 6 项" and small grey "完成度 67%". Under it a segmented bar of six thin equal rectangles, the first four filled solid black and the last two light grey.
+Below: three rows separated by hairlines, each with a short bold Chinese label ("简历", "岗位", "面试"), a small status sentence, and a small ghost button on the right; the first two statuses are green-ish dark text, the third is light grey.
+Below the rows: a tiny uppercase caption "技能标签 · 14" and a wrapped row of small pill-shaped outline chips with short technical labels, ending with one dashed chip "+ 6".
+Below that: a tiny uppercase caption "缺口 · 2" and two rows separated by hairlines, each with a small red-brown two-character label, a grey sentence, and a small ghost button on the right.
+
+At the bottom of the left area: one solid black button "开始一场模拟面试" next to one small outline ghost button.
+
+RIGHT SIDE: a small uppercase caption "OVERVIEW", two large numerals side by side with tiny captions, a thin divider, then three short label-value rows in small monospaced grey type.
+
+Four thin L-shaped register marks inset from the corners, faint vertical column hairlines.
+
+No gradients, no glow, no colour except one small green-grey status and one red-brown label, no 3D, no photography. Strict grid, precise spacing, monochrome black on white.

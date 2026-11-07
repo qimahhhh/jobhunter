@@ -1,0 +1,17 @@
+Ultra-minimal editorial web app screen, wide 16:10 landscape, pure white background, flat vector, Swiss design.
+
+Top left: a small "← 结束面试" link, below it a medium bold line "字节跳动 · 前端开发实习生" and one small grey line "综合面试 · 模拟模式 · 上限 20 分钟".
+
+LEFT SIDE: one large white card with a thin 1px light grey border and 14px rounded corners.
+Top row inside the card: small monospaced text on the left "第 4 题 · 预计 8 题", and on the right "已用 12:34".
+Below: a large bold question in two lines: "你说这个项目做过首屏优化，具体把哪个指标从多少降到了多少？"
+Below the question, indented to the right with a thin vertical hairline on its left: a tiny uppercase grey label "FOLLOW-UP" and one small line of text "你提到用了虚拟列表，那滚动位置是怎么保持的？"
+Below that: a wide empty answer box with a thin border, light grey placeholder text on two lines, and a tiny grey hint at its bottom.
+Bottom row of the card: a small outline ghost button "跳过这题" on the left, a solid black button "提交回答" on the right.
+
+RIGHT SIDE: a vertical process rail of four entries joined by a hairline — first completed with a filled dot "选岗位与模式", second highlighted bold "面试进行" with a tiny grey sub-label, then two light grey pending entries "面试报告", "复盘重练".
+Under the rail, a small uppercase caption "考察点 · 4 / 6" and a list of six short items with small check marks, four of them dark and two light grey.
+
+Four thin L-shaped register marks inset from the corners, faint vertical column hairlines.
+
+No gradients, no glow, no colour except tiny green check marks, no 3D, no photography. Strict grid, generous white space, monochrome black on white.

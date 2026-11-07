@@ -1,0 +1,15 @@
+Ultra-minimal editorial website main screen, wide 16:10 landscape composition, pure white background, flat vector.
+
+Top-left: a small bold letter "J" logo mark.
+Top-right: only a thin circular avatar outline with the Chinese name "李思远" placed to its left, set in a clean sans-serif. No paper corner, no folded corner, no dog-ear, no triangle, no peel, no shadow at the top-right.
+
+Upper middle, centered: a tiny monospaced uppercase overline; below it a two line headline, first line "Welcome to" in solid black, second line "Job Hunter" in thin hollow outlined letters; below that the exact uppercase tagline "HUNT JOB, HUNT YOUR HEART" in small letter-spaced type, flanked by two short thin horizontal rules.
+
+Below the headline: three identical cards in one horizontal row, equal width, 16px rounded corners, 1.3px solid black border, white fill. Each card top has a tiny monospaced index "01 RESUME", "02 JOBS", "03 INTERVIEW" over a hairline divider; in the middle a very thin monoline icon (a document with a check badge / three stacked job rows with a location pin / two speech bubbles); below the icon a Chinese title "简历", "岗位", "面试" and two short lines of small grey description text.
+
+At the far left edge and far right edge, vertically centered: one single hollow circle button about 36px with a thin black outline, containing an up arrow on the left and a document-lines icon on the right, no labels, no boxes.
+
+Bottom: one thin horizontal hairline spanning the content width with tiny monospaced text at both ends.
+Four thin L-shaped register marks inset 26px from the corners, and very faint vertical column hairlines.
+
+No gradients, no glow, no color accents, no 3D, no photography. Swiss editorial graphic design, strict grid, precise spacing, high contrast black on white, looks like a Figma artboard of a real SaaS product.
