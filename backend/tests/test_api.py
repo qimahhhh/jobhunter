@@ -510,6 +510,81 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fetched.json()["source_resume_id"], resume_id)
         self.assertEqual(fetched.json()["evidence"], ["c002", "c003"])
 
+    async def test_resume_draft_rewrites_from_profile_and_stored_chunks(self) -> None:
+        user_id = await self._create_user("draft@example.com")
+        resume = await _request(
+            "POST",
+            "/api/v1/resumes",
+            {
+                "user_id": user_id,
+                "source_name": "resume.pdf",
+                "content": {
+                    "chunks": [
+                        {
+                            "id": "c001",
+                            "source": "resume",
+                            "section": "实习经历",
+                            "text": "字节跳动 后端开发实习：负责推荐接口优化，QPS 提升 40%",
+                        }
+                    ]
+                },
+            },
+        )
+        profile = await _request(
+            "POST",
+            "/api/v1/profiles",
+            {
+                "user_id": user_id,
+                "requirements": {"desired_role": "AI 应用开发实习"},
+                "capabilities": {"summary": "计算机专业本科在读。", "skills": ["Python"]},
+                "source_resume_id": resume.json()["id"],
+            },
+        )
+        self.assertEqual(profile.status, 201)
+
+        client = _FakeClient(
+            [
+                {
+                    "headline": "计算机专业本科在读 · 后端开发",
+                    "summary": "计算机专业本科在读。",
+                    "experiences": [
+                        {
+                            "heading": "字节跳动 | 后端开发实习",
+                            "bullets": [
+                                {"text": "负责推荐接口优化，QPS 提升 40%", "sources": ["c003"]}
+                            ],
+                        }
+                    ],
+                    "skills": ["Python"],
+                    "education": [],
+                    "suggestions": ["补充实习时间区间"],
+                }
+            ]
+        )
+        with mock.patch("backend.app.routers._client", return_value=client):
+            response = await _request(
+                "POST", "/api/v1/resumes/draft", {"profile_id": profile.json()["id"]}
+            )
+
+        self.assertEqual(response.status, 200)
+        prompt = client.calls[0]["user"]
+        self.assertIn("计算机专业本科在读", prompt)
+        self.assertIn("QPS 提升 40%", prompt)
+
+        body = response.json()
+        self.assertEqual(body["experiences"][0]["bullets"][0]["sources"], ["c003"])
+        self.assertEqual([chunk["id"] for chunk in body["cited_chunks"]], ["c003"])
+        self.assertFalse(body["degraded"])
+
+    async def test_resume_draft_for_a_missing_profile_returns_404(self) -> None:
+        with mock.patch("backend.app.routers._client") as client:
+            response = await _request(
+                "POST", "/api/v1/resumes/draft", {"profile_id": "missing-profile"}
+            )
+
+        self.assertEqual(response.status, 404)
+        client.assert_not_called()
+
 
 async def _upload(
     path: str,

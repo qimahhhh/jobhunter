@@ -29,10 +29,14 @@ from .extractor import (
 from .llm import DeepSeekClient, LLMClient, LLMError
 from .orchestrator import JobFitOrchestrator, JobFitRunError
 from .schemas import (
+    CitedChunk,
     EmploymentType,
     JobFitFailureResponse,
     JobFitRequest,
     JobFitResponse,
+    ResumeDraftContent,
+    ResumeDraftRequest,
+    ResumeDraftResponse,
     ResumeExtractionRequest,
     ResumeExtractionResponse,
     ResumeSourceBundleRequest,
@@ -51,6 +55,11 @@ from .schemas_resources import (
     ResumeRead,
     UserCreate,
     UserRead,
+)
+from .resume_draft import (
+    blocks_from_profile,
+    blocks_from_stored_chunks,
+    draft_resume,
 )
 from .services import (
     ConflictError,
@@ -460,6 +469,66 @@ def confirm_extracted_profile(
     )
     profile = _or_404(lambda: create_profile(session, payload))
     return ProfileRead.model_validate(profile)
+
+
+@router.post(
+    "/resumes/draft",
+    response_model=ResumeDraftResponse,
+    responses={
+        404: {"description": "the profile or its source resume does not exist"},
+        503: {"description": "model client is not configured"},
+    },
+)
+def draft_base_resume(
+    data: ResumeDraftRequest,
+    session: Session = Depends(_session),
+) -> ResumeDraftResponse:
+    """Draft a base resume from a stored profile, without a job description.
+
+    This is the "how do I say what I did" step: the material is the profile plus
+    the chunks saved when it was extracted, so a rewritten bullet can still be
+    traced back to the paragraph it came from. Tailoring to a posting is a
+    separate step that adds a job to the same pipeline.
+    """
+
+    profile = _or_404(lambda: get_profile(session, data.profile_id))
+    blocks = blocks_from_profile(profile.capabilities or {})
+
+    if profile.source_resume_id:
+        source = _or_404(lambda: get_resume(session, profile.source_resume_id))
+        blocks.extend(
+            blocks_from_stored_chunks((source.content or {}).get("chunks", []))
+        )
+
+    try:
+        client = _client()
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    result = draft_resume(blocks, client, max_chunk_tokens=data.max_chunk_tokens)
+    content = result.content or ResumeDraftContent()
+    return ResumeDraftResponse(
+        profile_id=profile.id,
+        headline=content.headline,
+        summary=content.summary,
+        experiences=content.experiences,
+        skills=content.skills,
+        education=content.education,
+        suggestions=content.suggestions,
+        cited_chunks=[
+            CitedChunk(
+                id=chunk.chunk_id,
+                source=chunk.source,
+                section=chunk.section,
+                text=chunk.text,
+            )
+            for chunk in result.cited
+        ],
+        unresolved_evidence=result.unresolved,
+        unverified_bullets=result.unverified_bullets,
+        degraded=result.degraded,
+        notes=result.notes,
+    )
 
 
 @router.post("/resumes", response_model=ResumeRead, status_code=201)

@@ -35,6 +35,7 @@ python -m venv .venv
 | `POST /api/v1/profiles/extract/bundle` | 一次提交多来源：`resume_text`、`self_description`、`projects`（JSON，对象或数组）至少一项，合并后统一切块抽取；引用表头保留 `source` 标签，可选 `user_id` 同上。 |
 | `POST /api/v1/profiles/extract/confirm` | 用户校对、修改抽取草稿后提交确认（人工确认节点），写入用户画像（重复确认更新同一份画像）；`recommended_roles` 存为 `suggested_roles`，用户保留或修改后的方向存为 `target_roles`，未修改时 `target_roles_source` 标为 `suggested`；草稿的 `missing_information` 一并落库；可带 `resume_id` 与 `evidence`，写入画像的 `source_resume_id` / `evidence`；用户不存在返回 `404`。 |
 | `POST /api/v1/resumes`、`GET /api/v1/resumes/{resume_id}` | 保存和查询来源类型及内容结构化的简历记录。 |
+| `POST /api/v1/resumes/draft` | 用已存画像（外加画像关联的原简历 chunks）生成**基础简历**草稿，不涉及 JD；每条要点带 `sources` 引用，找不到原文依据的要点会被删除，数字对不上原文会进 `notes`。 |
 | `POST /api/v1/jobs`、`GET /api/v1/jobs`、`GET /api/v1/jobs/{job_id}` | 创建和查询岗位；列表支持 `employment_type` 筛选。 |
 | `POST /api/v1/job-matches`、`GET /api/v1/job-matches/{match_id}` | 创建和查询匹配结果；创建前会按岗位类型、地点、薪资等硬约束过滤。 |
 

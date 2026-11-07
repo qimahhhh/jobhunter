@@ -61,6 +61,75 @@ class ResumeExtractionRequest(BaseModel):
     max_chunk_tokens: int = Field(default=900, ge=50, le=4000)
 
 
+class ResumeBullet(BaseModel):
+    """One line of a resume entry, with the chunks that support it.
+
+    ``sources`` is not decoration: a bullet whose sources do not exist in the
+    context is dropped, because a rewritten resume that cannot be checked is
+    worse than no rewrite.
+    """
+
+    text: str = Field(min_length=1)
+    sources: list[str] = Field(default_factory=list)
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _as_list(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        return value
+
+
+class ResumeExperience(BaseModel):
+    heading: str = ""
+    bullets: list[ResumeBullet] = Field(default_factory=list)
+
+
+class ResumeDraftContent(BaseModel):
+    """What the model is asked to return for a base resume.
+
+    Everything here is a wording change of the profile. ``suggestions`` is the
+    only place that may say something the material does not, and it is advice
+    about the resume, not a claim about the candidate.
+    """
+
+    headline: str = ""
+    summary: str = ""
+    experiences: list[ResumeExperience] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    education: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+
+
+class ResumeDraftRequest(BaseModel):
+    profile_id: str
+    max_chunk_tokens: int = Field(default=900, ge=50, le=4000)
+
+
+class CitedChunk(BaseModel):
+    id: str
+    source: str
+    section: str
+    text: str
+
+
+class ResumeDraftResponse(BaseModel):
+    profile_id: str
+    headline: str
+    summary: str
+    experiences: list[ResumeExperience]
+    skills: list[str]
+    education: list[str]
+    suggestions: list[str]
+    cited_chunks: list[CitedChunk]
+    unresolved_evidence: list[str]
+    unverified_bullets: int
+    degraded: bool
+    notes: list[str]
+
+
 class ResumeSourceBundleRequest(BaseModel):
     """Several inputs for one draft: resume text, projects, self description.
 
