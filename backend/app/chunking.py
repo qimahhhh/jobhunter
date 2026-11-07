@@ -162,7 +162,17 @@ def _looks_like_heading(text: str) -> bool:
         return True
     if len(value) <= 12 and any(value.startswith(word) for word in _HEADING_WORDS):
         return True
-    if value.isascii() and value.upper() == value and len(value) >= 4:
+    # ``upper() == value`` also holds for text with no cased characters, so a
+    # date cell ("2023.09-2027.06"), a bare year or a row of "=" used to open a
+    # section and pull the following lines into it. ``isupper()`` needs at least
+    # one cased character, and rejecting digits keeps numeric layout cells as
+    # content instead of turning them into section labels.
+    if (
+        value.isascii()
+        and value.isupper()
+        and len(value) >= 4
+        and not any(character.isdigit() for character in value)
+    ):
         return True
     return False
 

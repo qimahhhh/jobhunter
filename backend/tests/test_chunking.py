@@ -41,6 +41,27 @@ class ResumeSectionTest(unittest.TestCase):
         self.assertEqual(blocks[0].section, "other")
         self.assertIn("Python", blocks[0].text)
 
+    def test_date_cell_is_not_mistaken_for_a_heading(self) -> None:
+        blocks = blocks_from_text(
+            "2023.09-2027.06\n\n北京邮电大学 计算机科学与技术\n\n2024"
+        )
+
+        self.assertEqual([block.section for block in blocks], ["other"] * 3)
+        self.assertEqual(blocks[0].text, "2023.09-2027.06")
+        self.assertEqual(blocks[2].text, "2024")
+
+    def test_separator_row_is_not_mistaken_for_a_heading(self) -> None:
+        blocks = blocks_from_text("========\n\n负责后端开发工作，维护三个服务。")
+
+        self.assertEqual(blocks[0].section, "other")
+        self.assertEqual(blocks[0].text, "========")
+
+    def test_all_caps_heading_still_opens_a_section(self) -> None:
+        blocks = blocks_from_text("TECHNICAL SKILLS\n\nPython、Go、SQL")
+
+        self.assertEqual(blocks[0].section, "TECHNICAL SKILLS")
+        self.assertIn("Python", blocks[0].text)
+
     def test_chunks_never_cross_a_section_boundary(self) -> None:
         chunks = chunk_blocks(blocks_from_text(RESUME_TEXT))
 
