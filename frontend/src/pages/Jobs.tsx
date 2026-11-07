@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Ticks from "../components/Ticks";
 import FlowRail from "../components/FlowRail";
 import { useProfile } from "../store";
-import { sortedJobs } from "../jobs";
+import { JOBS, matchOf, type Job, type Match } from "../jobs";
+import { API_BASE, fitJob, type JobFit } from "../api";
 import type { Route } from "../App";
 
 type Props = {
@@ -10,16 +11,55 @@ type Props = {
   onPick: (id: string) => void;
 };
 
+type ApiState = "loading" | "ok" | "error";
+
 export default function Jobs({ go, onPick }: Props) {
   const { profile, patch, compare } = useProfile();
-  const rows = sortedJobs(profile);
-  const verified = rows.filter((r) => r.job.verify === "ok").length;
-
   const [editing, setEditing] = useState(false);
   const [role, setRole] = useState(profile.target.role ?? "");
   const [city, setCity] = useState(profile.target.city ?? "");
   const [emp, setEmp] = useState<"实习" | "校招" | "社招">(profile.target.employment ?? "实习");
 
+  const [fits, setFits] = useState<Record<string, JobFit>>({});
+  const [apiState, setApiState] = useState<ApiState>("loading");
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setApiState("loading");
+    Promise.all(JOBS.map((job) => fitJob(profile, job)))
+      .then((results) => {
+        if (cancelled) return;
+        const next: Record<string, JobFit> = {};
+        JOBS.forEach((job, index) => {
+          next[job.id] = results[index];
+        });
+        setFits(next);
+        setApiState("ok");
+      })
+      .catch(() => {
+        if (!cancelled) setApiState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profile, attempt]);
+
+  const rows = useMemo(() => {
+    const tier = (verify: Job["verify"]) => (verify === "dead" ? 1 : 0);
+    return JOBS.map((job) => {
+      const local = matchOf(job, profile);
+      const fit = fits[job.id];
+      const match: Match = fit
+        ? { met: fit.matchPoints, gap: fit.gaps, fail: local.fail, score: fit.score }
+        : local;
+      return { job, match };
+    }).sort(
+      (a, b) => tier(a.job.verify) - tier(b.job.verify) || b.match.score - a.match.score
+    );
+  }, [profile, fits]);
+
+  const verified = rows.filter((r) => r.job.verify === "ok").length;
   const hasTarget = !!(profile.target.city || profile.target.role);
 
   function save() {
@@ -47,6 +87,17 @@ export default function Jobs({ go, onPick }: Props) {
       <div className="page-head">
         <h1 className="page-title">岗位</h1>
         <p className="page-sub">点进去看它为什么匹配，不只是给一个分。</p>
+      </div>
+
+      <div className={`api-bar ${apiState}`}>
+        {apiState === "loading" && <span>正在调用后端分析匹配……</span>}
+        {apiState === "ok" && <span>匹配分来自后端 {API_BASE} · /api/v1/job-fit</span>}
+        {apiState === "error" && (
+          <>
+            <span>后端未连接（{API_BASE}），当前为本地估算。</span>
+            <button onClick={() => setAttempt((n) => n + 1)}>重试</button>
+          </>
+        )}
       </div>
 
       <div className="cond">

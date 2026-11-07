@@ -28,6 +28,11 @@ export type Profile = {
   target: Target;
   /** 简历问答里已确认的答案：questionId -> 回答 */
   answers: Record<string, string>;
+  /** 后端简历解析得到的摘要 / 技能 / 证据（可选） */
+  summary?: string;
+  skills?: string[];
+  evidence?: string[];
+  extraction?: { degraded: boolean; notes: string[] };
 };
 
 /** 面试结果：答题记录 + 用时，报告页从这里推导 */

@@ -50,6 +50,7 @@ src/
 - **简历草稿**：A4 预览 + 右侧「待确认」清单，未确认的地方在正文里标虚框，点「去确认」回到问答
 - 全局 `prefers-reduced-motion` 降级、`:focus-visible` 焦点环
 - **本地持久化**：档案、问答、面试结果、对比和登录状态写入 `localStorage`（key `jobhunter.state.v1`），刷新不丢；清空方式见仓库根 README
+- **前后端联调**：上传页接 `POST /api/v1/profiles/extract/file`，岗位页接 `POST /api/v1/job-fit`；后端不可用时自动回退本地估算
 - **自动部署**：push 到 `main` 后由 GitHub Actions 构建并发布到 GitHub Pages
 
 ## 验证状态

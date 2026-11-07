@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import Ticks from "../components/Ticks";
 import FlowRail from "../components/FlowRail";
 import { useProfile } from "../store";
 import { JOBS, matchOf } from "../jobs";
+import { API_BASE, fitJob, type JobFit } from "../api";
 import type { Route } from "../App";
 
 type Props = {
@@ -9,10 +11,52 @@ type Props = {
   jobId: string;
 };
 
+type Status = "loading" | "ok" | "error";
+
 export default function JobDetail({ go, jobId }: Props) {
   const { profile, compare, toggleCompare } = useProfile();
   const job = JOBS.find((j) => j.id === jobId) ?? JOBS[0];
-  const m = matchOf(job, profile);
+  const [fit, setFit] = useState<JobFit | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    setFit(null);
+    fitJob(profile, job)
+      .then((result) => {
+        if (cancelled) return;
+        setFit(result);
+        setStatus("ok");
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profile, job, attempt]);
+
+  const local = matchOf(job, profile);
+  // 后端的 match_points 只返回前 5 个关键词，硬性条件可能被截掉；
+  // 这里把本地能确定的硬性项并回来，保证打勾和列表不矛盾。
+  const met = fit
+    ? Array.from(
+        new Set([
+          ...job.reqs
+            .filter((r) => r.type === "hard" && local.met.includes(r.label))
+            .map((r) => r.label),
+          ...fit.matchPoints,
+        ])
+      )
+    : local.met;
+  const m = {
+    met,
+    gap: fit?.gaps ?? local.gap,
+    fail: local.fail,
+    score: fit?.score ?? local.score,
+  };
   const inCompare = compare.includes(job.id);
 
   const skills = profile.projects.length ? 82 : 46;
@@ -43,6 +87,22 @@ export default function JobDetail({ go, jobId }: Props) {
           <i className={`dot ${job.verify}`} />{" "}
           {job.verify === "ok" ? "已核验" : job.verify === "dead" ? "来源失效" : "待核验"} · 采集于{" "}
           {job.collected}
+        </div>
+        <div className="fitline">
+          <b>{m.score}</b>
+          <span>AI 匹配</span>
+          <em className={status === "error" ? "err" : ""}>
+            {status === "loading"
+              ? "后端分析中…"
+              : status === "error"
+                ? `后端未连接（${API_BASE}），本地估算`
+                : "来自后端 /api/v1/job-fit"}
+          </em>
+          {status === "error" && (
+            <button className="btn sm" onClick={() => setAttempt((n) => n + 1)}>
+              重试
+            </button>
+          )}
         </div>
       </div>
 
@@ -105,12 +165,30 @@ export default function JobDetail({ go, jobId }: Props) {
         </div>
       </div>
 
+      {fit && (
+        <div className="fit-note">
+          <div className="cap">后端分析 · 置信度 {Math.round(fit.confidence * 100)}%</div>
+          <p>
+            命中 {fit.matchPoints.length} 个关键词，缺口 {fit.gaps.length} 个。
+          </p>
+          <p>
+            {fit.gaps.length
+              ? `优先补证据：${fit.gaps.join("、")}`
+              : "岗位关键词已全覆盖，接下来核对项目深度和结果。"}
+          </p>
+        </div>
+      )}
+
       <div className="next">
         <div className="cap">下一步</div>
         <ul>
           <li>
             <b>简历强调</b>
-            {softMet.length ? softMet.slice(0, 3).join("、") : "先把项目经历和技能证据补上"}
+            {fit?.matchPoints.length
+              ? fit.matchPoints.slice(0, 3).join("、")
+              : softMet.length
+                ? softMet.slice(0, 3).join("、")
+                : "先把项目经历和技能证据补上"}
           </li>
           <li>
             <b>面试准备</b>

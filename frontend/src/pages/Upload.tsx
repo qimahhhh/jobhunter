@@ -2,12 +2,17 @@ import { useRef, useState } from "react";
 import Ticks from "../components/Ticks";
 import { useProfile } from "../store";
 import { checklist } from "../types";
+import { ApiError, extractResume } from "../api";
 import type { Route } from "../App";
+
+type Status = { kind: "info" | "ok" | "err"; text: string };
 
 export default function Upload({ go }: { go: (r: Route) => void }) {
   const { profile, patch } = useProfile();
   const [urlOpen, setUrlOpen] = useState(false);
   const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<Status | null>(null);
 
   const resumeInput = useRef<HTMLInputElement>(null);
   const zipInput = useRef<HTMLInputElement>(null);
@@ -15,11 +20,65 @@ export default function Upload({ go }: { go: (r: Route) => void }) {
   const items = checklist(profile);
   const done = items.filter((i) => i.done).length;
 
-  function pickResume(file?: File) {
+  async function pickResume(file?: File) {
     if (!file) return;
+    const ext = file.name.toLowerCase().split(".").pop();
+    if (ext !== "pdf" && ext !== "docx") {
+      setStatus({ kind: "err", text: "后端目前只解析 PDF / DOCX，图片请先转成 PDF 再上传。" });
+      return;
+    }
+
+    setBusy(true);
+    setStatus({ kind: "info", text: "正在解析简历并抽取档案……" });
+    try {
+      const result = await extractResume(file);
+      const draft = result.profile;
+      const skills = draft?.skills ?? [];
+      const experiences = draft?.experiences ?? [];
+      const story = [draft?.summary, ...experiences].filter(Boolean).join("\n");
+
+      patch({
+        resume: { name: file.name, size: file.size, pages: 2, experiences: experiences.length },
+        summary: draft?.summary,
+        skills,
+        evidence: result.evidence,
+        extraction: { degraded: result.degraded, notes: result.notes },
+        stories: profile.stories.trim() ? profile.stories : story,
+      });
+
+      setStatus({
+        kind: result.degraded ? "info" : "ok",
+        text: result.degraded
+          ? "解析完成，但模型未配置，当前是规则降级结果。"
+          : `解析完成：${skills.length} 项技能、${experiences.length} 段经历、${result.evidence.length} 条证据。`,
+      });
+    } catch (err) {
+      const message =
+        err instanceof ApiError && err.status === 503
+          ? "后端没有配置模型 Key（503）。在 jobhunter/.env 填 DEEPSEEK_API_KEY 后重启后端即可；文件信息已记录。"
+          : `解析失败：${(err as Error).message}。文件信息已记录，可继续手动填写。`;
+      setStatus({ kind: "err", text: message });
+      patch({
+        resume: { name: file.name, size: file.size, pages: 2, experiences: 0 },
+        summary: undefined,
+        skills: [],
+        evidence: [],
+        extraction: undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function clearResume() {
     patch({
-      resume: { name: file.name, size: file.size, pages: 2, experiences: 0 },
+      resume: null,
+      summary: undefined,
+      skills: [],
+      evidence: [],
+      extraction: undefined,
     });
+    setStatus(null);
   }
 
   function addProject(name: string, source: "github" | "zip") {
@@ -70,7 +129,7 @@ export default function Upload({ go }: { go: (r: Route) => void }) {
               <span className="idx">01</span>
               <h3>个人简历</h3>
               <span className={profile.resume ? "chip ok" : "chip"}>
-                {profile.resume ? "已上传" : "待上传"}
+                {busy ? "解析中" : profile.resume ? "已上传" : "待上传"}
               </span>
             </div>
 
@@ -81,31 +140,54 @@ export default function Upload({ go }: { go: (r: Route) => void }) {
                   <b>{profile.resume.name}</b>
                   <span>
                     {(profile.resume.size / 1024 / 1024).toFixed(1)} MB · {profile.resume.pages} 页
+                    {profile.resume.experiences > 0
+                      ? ` · 识别 ${profile.resume.experiences} 段经历`
+                      : ""}
                   </span>
                 </div>
                 <div className="fops">
-                  <button className="btn" onClick={() => resumeInput.current?.click()}>
+                  <button className="btn" disabled={busy} onClick={() => resumeInput.current?.click()}>
                     替换
                   </button>
-                  <button className="btn" onClick={() => patch({ resume: null })}>
+                  <button className="btn" onClick={clearResume}>
                     移除
                   </button>
                 </div>
               </div>
             ) : (
-              <button className="drop" onClick={() => resumeInput.current?.click()}>
-                <b>把简历拖到这里</b>
-                <span>或点击选择文件 · PDF / Word / 图片 · ≤ 20 MB</span>
+              <button className="drop" disabled={busy} onClick={() => resumeInput.current?.click()}>
+                <b>{busy ? "正在解析……" : "把简历拖到这里"}</b>
+                <span>或点击选择文件 · PDF / Word · ≤ 20 MB</span>
               </button>
             )}
 
             <input
               ref={resumeInput}
               type="file"
-              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+              accept=".pdf,.docx"
               hidden
-              onChange={(e) => pickResume(e.target.files?.[0])}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                void pickResume(file);
+              }}
             />
+
+            {status && <p className={`up-status ${status.kind}`}>{status.text}</p>}
+
+            {profile.skills && profile.skills.length > 0 && (
+              <div className="tags">
+                {profile.skills.map((skill) => (
+                  <span className="tag" key={skill}>
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {profile.evidence && profile.evidence.length > 0 && (
+              <p className="hint">已保留 {profile.evidence.length} 条简历证据引用，问答页会用到。</p>
+            )}
           </section>
 
           {/* 02 项目 */}
@@ -113,9 +195,7 @@ export default function Upload({ go }: { go: (r: Route) => void }) {
             <div className="sec-head">
               <span className="idx">02</span>
               <h3>项目经历</h3>
-              <span className="chip">
-                {profile.projects.length} / 6
-              </span>
+              <span className="chip">{profile.projects.length} / 6</span>
             </div>
 
             {profile.projects.map((p) => (

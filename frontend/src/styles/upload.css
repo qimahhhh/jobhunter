@@ -375,3 +375,19 @@
   letter-spacing: 0.14em;
   color: var(--ink-4);
 }
+
+/* 简历解析状态 */
+.up-status {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+
+.up-status.ok {
+  color: var(--ok);
+}
+
+.up-status.err {
+  color: #b42318;
+}

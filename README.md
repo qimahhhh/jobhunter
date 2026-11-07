@@ -38,6 +38,19 @@ python -m venv .venv
 
 打开 http://127.0.0.1:8000/docs。也可以运行 `.\scripts\run_dev.ps1`。接口清单、简历解析和测试方式见 [backend/README.md](backend/README.md)。
 
+## 前后端联调
+
+前端默认请求 `http://127.0.0.1:8000`，可用 `VITE_API_BASE` 覆盖：
+
+```bash
+cd frontend
+VITE_API_BASE=http://127.0.0.1:8000 npm run dev
+```
+
+- 上传页：选 PDF / DOCX 后调用 `POST /api/v1/profiles/extract/file`，摘要、技能、经历会写进档案。该接口需要 `DEEPSEEK_API_KEY`，未配置时返回 `503`，页面会提示并保留文件信息。
+- 岗位页：对每个岗位调用 `POST /api/v1/job-fit`，匹配分、命中项和缺口来自后端。后端未启动时自动回退本地估算，并在页面上方显示提示条。
+- GitHub Pages 上没有后端，线上会走本地回退；真正联调请在本地同时起 5173 和 8000。
+
 ## 在线演示
 
 前端 GitHub Pages：https://qimahhhh.github.io/jobhunter/

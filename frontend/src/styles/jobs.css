@@ -409,3 +409,90 @@
   background: var(--ink);
   transition: width var(--dur-3) var(--ease);
 }
+
+/* 后端连接状态 */
+.api-bar {
+  margin-top: 16px;
+  width: 800px;
+  max-width: calc(100% - 360px);
+  padding: 9px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 400 10.5px/1.5 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  background: #fafbfd;
+}
+
+.api-bar.ok {
+  border-color: #bfe0c8;
+  background: #f3fbf5;
+  color: var(--ok);
+}
+
+.api-bar.error {
+  border-color: #f3c7c3;
+  background: #fff8f7;
+  color: #b42318;
+}
+
+.api-bar button {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fitline {
+  margin-top: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.fitline b {
+  font: 600 34px/1 var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.fitline span {
+  font: 500 9.5px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+}
+
+.fitline em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--ink-4);
+}
+
+.fitline em.err {
+  color: #b42318;
+}
+
+.fit-note {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.fit-note .cap {
+  font: 500 9.5px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--ink-4);
+}
+
+.fit-note p {
+  margin: 9px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-3);
+}
