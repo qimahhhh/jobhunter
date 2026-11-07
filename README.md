@@ -24,6 +24,14 @@ npm run dev        # http://localhost:5173
 npm run build      # 产物在 frontend/dist/
 ```
 
+## 在线演示
+
+GitHub Pages：https://qimahhhh.github.io/jobhunter/
+
+首次部署需要在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**；之后每次 push 到 `main`，`.github/workflows/deploy.yml` 会自动构建并发布。
+
+生产构建的资源前缀为 `/jobhunter/`，本地 `npm run dev` 仍从根路径 `/` 提供服务。
+
 ## 验证
 
 ```bash
@@ -34,6 +42,16 @@ node scripts/check-classes.mjs      # TSX 用到的 class 是否都有定义
 
 cd ..
 node smoke-test.js                  # 关键帧页冒烟测试
+```
+
+## 演示数据
+
+档案、问答、面试结果、岗位对比和登录状态保存在浏览器 `localStorage`，key 为 `jobhunter.state.v1`，刷新页面不会丢。
+
+清空演示数据：DevTools → Application → Local Storage 删除该 key，或在控制台执行：
+
+```js
+localStorage.removeItem("jobhunter.state.v1");
 ```
 
 ## 不入库的内容

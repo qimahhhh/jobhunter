@@ -49,11 +49,13 @@ src/
 - **岗位对比**：详情页「加入对比」最多选 4 个，列表底部浮出对比条，对比页并排 6 行维度 + 推荐顺序
 - **简历草稿**：A4 预览 + 右侧「待确认」清单，未确认的地方在正文里标虚框，点「去确认」回到问答
 - 全局 `prefers-reduced-motion` 降级、`:focus-visible` 焦点环
+- **本地持久化**：档案、问答、面试结果、对比和登录状态写入 `localStorage`（key `jobhunter.state.v1`），刷新不丢；清空方式见仓库根 README
+- **自动部署**：push 到 `main` 后由 GitHub Actions 构建并发布到 GitHub Pages
 
 ## 验证状态
 
 - `tsc --noEmit` **通过**（TypeScript 5.6.3，strict，0 error）
-- 依赖已安装（`node_modules/` 已就位）；`vite dev` / `vite build` 尚未在本机沙箱内实际运行（沙箱限制子进程管道），建议在正常终端跑一次确认
+- 依赖已安装（`node_modules/` 已就位）；`vite build` 由 GitHub Actions 在每次 push 时执行，本地沙箱未跑（子进程管道受限）
 - 根目录 `smoke-test.js` 对关键帧页做 DOM 冒烟测试，全部通过
 
 ## 页面
