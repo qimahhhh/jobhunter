@@ -1,0 +1,12 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+pydantic>=2,<3
+sqlalchemy>=2,<3
+# Parsing for the Career Agent input stage; imported lazily in chunking.py so
+# the API still starts when they are missing.
+pdfplumber>=0.11,<1
+python-docx>=1.1,<2
+# Model access for the extraction stage. DeepSeek is OpenAI-compatible, so one
+# SDK covers it; python-dotenv just loads the local .env file.
+openai>=1.40,<2
+python-dotenv>=1.0,<2

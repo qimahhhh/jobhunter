@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+
+EmploymentType = Literal["internship", "part_time", "full_time", "contract"]
+SalaryPeriod = Literal["day", "month", "year"]
+JobStatus = Literal[
+    "active",
+    "expired",
+    "pending_verification",
+    "source_unavailable",
+    "unknown",
+]
+
+
+class ProfileInput(BaseModel):
+    summary: str = Field(min_length=1)
+    skills: list[str] = Field(default_factory=list)
+    experiences: list[str] = Field(default_factory=list)
+
+
+class ProfileDraft(BaseModel):
+    """What the extraction call is asked to return.
+
+    The coercions are deliberate. A model that answers with one string where a
+    list was asked for is a formatting slip, not a reason to throw away the
+    whole extraction, and ``evidence`` has to survive intact because it is the
+    only thing tying a claim back to the resume.
+    """
+
+    summary: str = ""
+    skills: list[str] = Field(default_factory=list)
+    experiences: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+
+    @field_validator("skills", "experiences", "evidence", mode="before")
+    @classmethod
+    def _as_list(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        return value
+
+
+class ResumeExtractionRequest(BaseModel):
+    text: str = Field(min_length=1)
+    max_chunk_tokens: int = Field(default=900, ge=50, le=4000)
+
+
+class ResumeExtractionResponse(BaseModel):
+    profile: ProfileInput | None
+    evidence: list[str]
+    unresolved_evidence: list[str]
+    chunk_ids: list[str]
+    degraded: bool
+    notes: list[str]
+
+
+class JobInput(BaseModel):
+    title: str = Field(min_length=1)
+    company: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    requirements: str = Field(min_length=1)
+    employment_type: EmploymentType
+    source_name: str = "user-provided"
+    source_url: str | None = None
+
+
+class JobFitRequest(BaseModel):
+    profile: ProfileInput
+    job: JobInput
+
+
+class JobVerification(BaseModel):
+    status: JobStatus
+    checks: dict[str, bool]
+    source_name: str
+    source_url: str | None
+
+
+class MatchResult(BaseModel):
+    score: float = Field(ge=0, le=1)
+    match_points: list[str]
+    gaps: list[str]
+    recommendation: str
+    confidence: float
+
+
+class FitReport(MatchResult):
+    summary: str
+
+
+class InterviewQuestion(BaseModel):
+    type: str
+    question: str
+    why: str
+
+
+class RunEvent(BaseModel):
+    stage: str
+    status: str
+    duration_ms: int
+    detail: str
+
+
+class JobFitResponse(BaseModel):
+    request_id: str
+    job: JobVerification
+    fit_report: FitReport
+    resume_suggestions: list[str]
+    interview_questions: list[InterviewQuestion]
+    warnings: list[str]
+    run_log: list[RunEvent]
+
+
+class JobFitFailureResponse(BaseModel):
+    request_id: str
+    status: Literal["failed"]
+    failed_stage: str
+    error_type: str
+    message: str
+    run_log: list[RunEvent]

@@ -1,12 +1,16 @@
 # Job Hunter
 
-AI 求职决策与执行平台的前端原型：上传简历 → 建立档案 → 匹配岗位 → 面试演练 → 生成报告。
+AI 求职决策与执行平台：上传简历 → 建立档案 → 匹配岗位 → 面试演练 → 生成报告。
+
+- `frontend/`：React + TypeScript + Vite 前端原型（12 个页面）
+- `backend/`：FastAPI + SQLite 后端，负责简历解析、画像抽取、岗位匹配和面试题生成
 
 ## 目录
 
 | 路径 | 内容 |
 | --- | --- |
 | `frontend/` | React + TypeScript + Vite 应用 |
+| `backend/` | FastAPI 后端与测试，细节见 [backend/README.md](backend/README.md) |
 | `DESIGN-SPEC.md` | 设计规范（颜色、字号、间距、动效） |
 | `job-hunter-wireframe-v2.html` | 12 块画板线稿，浏览器直接打开 |
 | `job-hunter-keyframes.html` | 关键帧 / 交互演示页 |
@@ -15,7 +19,7 @@ AI 求职决策与执行平台的前端原型：上传简历 → 建立档案 �
 | `smoke-test.js` | 关键帧页的 DOM 冒烟测试 |
 | `流程修改方案.md` | 项目计划书修改方案 |
 
-## 运行前端
+## 跑前端
 
 ```bash
 cd frontend
@@ -24,9 +28,19 @@ npm run dev        # http://localhost:5173
 npm run build      # 产物在 frontend/dist/
 ```
 
+## 跑后端
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m uvicorn backend.app.main:app --reload
+```
+
+打开 http://127.0.0.1:8000/docs。也可以运行 `.\scripts\run_dev.ps1`。接口清单、简历解析和测试方式见 [backend/README.md](backend/README.md)。
+
 ## 在线演示
 
-GitHub Pages：https://qimahhhh.github.io/jobhunter/
+前端 GitHub Pages：https://qimahhhh.github.io/jobhunter/
 
 首次部署需要在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**；之后每次 push 到 `main`，`.github/workflows/deploy.yml` 会自动构建并发布。
 
@@ -35,6 +49,7 @@ GitHub Pages：https://qimahhhh.github.io/jobhunter/
 ## 验证
 
 ```bash
+# 前端
 cd frontend
 npx tsc --noEmit                    # 类型检查
 node scripts/check-css.mjs          # 跨文件选择器覆盖检查
@@ -42,6 +57,12 @@ node scripts/check-classes.mjs      # TSX 用到的 class 是否都有定义
 
 cd ..
 node smoke-test.js                  # 关键帧页冒烟测试
+```
+
+```powershell
+# 后端
+$env:PYTHONPATH = "."
+python -m unittest discover -s backend/tests -v
 ```
 
 ## 演示数据
@@ -57,4 +78,5 @@ localStorage.removeItem("jobhunter.state.v1");
 ## 不入库的内容
 
 - `node_modules/`、`dist/`、`.vite/`、`.tarballs/`
+- `.venv/`、`__pycache__/`、`*.db`、`.env`
 - 设计渲染图 `out/v2-frame*.png`、截图 `ui-shots/`（生成物，可重新产出）

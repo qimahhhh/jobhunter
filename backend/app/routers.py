@@ -1,0 +1,339 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from io import BytesIO
+import logging
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+
+from .chunking import blocks_from_docx, blocks_from_pdf
+from .db import get_session
+from .extractor import ExtractionResult, extract_profile, extract_profile_from_blocks
+from .llm import DeepSeekClient, LLMClient, LLMError
+from .orchestrator import JobFitOrchestrator, JobFitRunError
+from .schemas import (
+    EmploymentType,
+    JobFitFailureResponse,
+    JobFitRequest,
+    JobFitResponse,
+    ResumeExtractionRequest,
+    ResumeExtractionResponse,
+)
+from .schemas_resources import (
+    JobCreate,
+    JobFitAnalysisRead,
+    JobMatchCreate,
+    JobMatchRead,
+    JobRead,
+    ProfileCreate,
+    ProfileRead,
+    ResumeCreate,
+    ResumeRead,
+    UserCreate,
+    UserRead,
+)
+from .services import (
+    ConflictError,
+    ConstraintRejectedError,
+    NotFoundError,
+    create_job,
+    create_job_fit_analysis,
+    create_job_match,
+    create_profile,
+    create_resume,
+    create_user,
+    get_job,
+    get_job_fit_analysis,
+    get_job_match,
+    get_profile,
+    get_resume,
+    get_user,
+    list_job_fit_analyses,
+    list_jobs,
+)
+
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+health_router = APIRouter(tags=["Health"])
+orchestrator = JobFitOrchestrator()
+_llm_client: LLMClient | None = None
+
+
+def _client() -> LLMClient:
+    """Build the model client on first use.
+
+    Keeping it lazy means the API still starts and serves every other route
+    when no key is configured; the failure shows up as a 503 on the one endpoint
+    that actually needs a model.
+    """
+
+    global _llm_client
+    if _llm_client is None:
+        _llm_client = DeepSeekClient()
+    return _llm_client
+
+
+def _session(session: Session = Depends(get_session)) -> Session:
+    return session
+
+
+def _or_404(operation: Callable[[], Any]) -> Any:
+    """Translate a missing row into HTTP 404.
+
+    Covers both direct reads and references resolved while creating a resource
+    (``POST /profiles`` resolves the user, ``POST /job-matches`` resolves the
+    profile and the job), so a bad id never escapes as an unhandled 500.
+    """
+
+    try:
+        return operation()
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@health_router.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": "ai-job-hunter"}
+
+
+@router.post(
+    "/job-fit",
+    response_model=JobFitResponse,
+    responses={500: {"model": JobFitFailureResponse}},
+)
+def job_fit(
+    request: JobFitRequest,
+    session: Session = Depends(get_session),
+) -> JobFitResponse | JSONResponse:
+    try:
+        response = orchestrator.run(request)
+        create_job_fit_analysis(session, request, response)
+        return response
+    except JobFitRunError as exc:
+        logger.exception(
+            "job-fit request %s failed at stage %s; run_log=%s",
+            exc.request_id,
+            exc.failed_stage,
+            [event.model_dump() for event in exc.run_log],
+        )
+        return JSONResponse(
+            status_code=500,
+            content=exc.to_response().model_dump(mode="json"),
+        )
+
+
+@router.post("/users", response_model=UserRead, status_code=201)
+def add_user(data: UserCreate, session: Session = Depends(_session)) -> UserRead:
+    try:
+        user = create_user(session, data)
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail="该邮箱已存在") from exc
+    return UserRead.model_validate(user)
+
+
+@router.get("/users/{user_id}", response_model=UserRead)
+def read_user(user_id: str, session: Session = Depends(_session)) -> UserRead:
+    return UserRead.model_validate(_or_404(lambda: get_user(session, user_id)))
+
+
+@router.post("/profiles", response_model=ProfileRead, status_code=201)
+def add_profile(data: ProfileCreate, session: Session = Depends(_session)) -> ProfileRead:
+    profile = _or_404(lambda: create_profile(session, data))
+    return ProfileRead.model_validate(profile)
+
+
+@router.get("/profiles/{profile_id}", response_model=ProfileRead)
+def read_profile(profile_id: str, session: Session = Depends(_session)) -> ProfileRead:
+    return ProfileRead.model_validate(_or_404(lambda: get_profile(session, profile_id)))
+
+
+@router.post(
+    "/profiles/extract",
+    response_model=ResumeExtractionResponse,
+    responses={503: {"description": "model client is not configured"}},
+)
+def extract_profile_from_resume(data: ResumeExtractionRequest) -> ResumeExtractionResponse:
+    """Chunk resume text and let the model draft a profile from it.
+
+    Nothing is persisted: the draft comes back with the chunk ids it cited so a
+    human (or the frontend) can check it before saving through ``POST /profiles``.
+    """
+
+    try:
+        client = _client()
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    result = extract_profile(data.text, client, max_chunk_tokens=data.max_chunk_tokens)
+    return _extraction_response(result)
+
+
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+
+def _extraction_response(result: ExtractionResult) -> ResumeExtractionResponse:
+    return ResumeExtractionResponse(
+        profile=result.profile,
+        evidence=result.evidence,
+        unresolved_evidence=result.unresolved,
+        chunk_ids=result.chunk_ids,
+        degraded=result.degraded,
+        notes=result.notes,
+    )
+
+
+async def _read_upload(request: Request) -> bytes:
+    """Read the request body, refusing anything past the size limit early."""
+
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"简历文件不能超过 {_MAX_UPLOAD_BYTES // (1024 * 1024)}MB",
+            )
+    return bytes(body)
+
+
+@router.post(
+    "/profiles/extract/file",
+    response_model=ResumeExtractionResponse,
+    responses={
+        400: {"description": "the uploaded file cannot be parsed"},
+        413: {"description": "the uploaded file is too large"},
+        415: {"description": "only .pdf and .docx resumes are supported"},
+        503: {"description": "model client is not configured"},
+    },
+)
+async def extract_profile_from_upload(
+    request: Request,
+    filename: str = Query(min_length=1),
+    max_chunk_tokens: int = Query(default=900, ge=50, le=4000),
+) -> ResumeExtractionResponse:
+    """Parse an uploaded resume and let the model draft a profile from it.
+
+    The body is the raw file bytes and ``filename`` carries the extension that
+    picks the parser, so a client uploads with one ``fetch`` and the server
+    needs no multipart support. Same contract as ``POST /profiles/extract``:
+    nothing is persisted, and the draft comes back with the chunk ids it cited
+    so a human (or the frontend) can check it before saving through
+    ``POST /profiles``.
+    """
+
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".pdf":
+        parse = blocks_from_pdf
+    elif suffix == ".docx":
+        parse = blocks_from_docx
+    else:
+        raise HTTPException(
+            status_code=415,
+            detail=f"只支持 .pdf / .docx 简历文件，收到：{filename}",
+        )
+
+    content = await _read_upload(request)
+    if not content:
+        raise HTTPException(status_code=400, detail="简历文件是空的")
+
+    try:
+        blocks = await run_in_threadpool(parse, BytesIO(content))
+    except RuntimeError as exc:  # the optional parser dependency is missing
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"简历文件解析失败：{exc}") from exc
+
+    try:
+        client = _client()
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # Parsing a PDF and one model turn are both blocking calls. The route is
+    # async only because streaming the body is, so hand them to the thread
+    # pool: otherwise one 5s extraction stalls every other request on the loop.
+    result = await run_in_threadpool(
+        extract_profile_from_blocks, blocks, client, max_chunk_tokens=max_chunk_tokens
+    )
+    return _extraction_response(result)
+
+
+@router.post("/resumes", response_model=ResumeRead, status_code=201)
+def add_resume(data: ResumeCreate, session: Session = Depends(_session)) -> ResumeRead:
+    resume = _or_404(lambda: create_resume(session, data))
+    return ResumeRead.model_validate(resume)
+
+
+@router.get("/resumes/{resume_id}", response_model=ResumeRead)
+def read_resume(resume_id: str, session: Session = Depends(_session)) -> ResumeRead:
+    return ResumeRead.model_validate(_or_404(lambda: get_resume(session, resume_id)))
+
+
+@router.post("/jobs", response_model=JobRead, status_code=201)
+def add_job(data: JobCreate, session: Session = Depends(_session)) -> JobRead:
+    return JobRead.model_validate(create_job(session, data))
+
+
+@router.get("/jobs", response_model=list[JobRead])
+def read_jobs(
+    employment_type: EmploymentType | None = None,
+    session: Session = Depends(_session),
+) -> list[JobRead]:
+    return [
+        JobRead.model_validate(job)
+        for job in list_jobs(session, employment_type=employment_type)
+    ]
+
+
+@router.get("/jobs/{job_id}", response_model=JobRead)
+def read_job(job_id: str, session: Session = Depends(_session)) -> JobRead:
+    return JobRead.model_validate(_or_404(lambda: get_job(session, job_id)))
+
+
+@router.post("/job-matches", response_model=JobMatchRead, status_code=201)
+def add_job_match(data: JobMatchCreate, session: Session = Depends(_session)) -> JobMatchRead:
+    try:
+        match = create_job_match(session, data)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ConstraintRejectedError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "hard constraints not met",
+                "rejections": exc.outcome.rejections,
+                "unknowns": exc.outcome.unknowns,
+            },
+        ) from exc
+    return JobMatchRead.model_validate(match)
+
+
+@router.get("/job-matches/{match_id}", response_model=JobMatchRead)
+def read_job_match(match_id: str, session: Session = Depends(_session)) -> JobMatchRead:
+    return JobMatchRead.model_validate(_or_404(lambda: get_job_match(session, match_id)))
+
+
+@router.get("/job-fit", response_model=list[JobFitAnalysisRead])
+def read_job_fit_analyses(
+    session: Session = Depends(_session),
+) -> list[JobFitAnalysisRead]:
+    return [
+        JobFitAnalysisRead.model_validate(analysis)
+        for analysis in list_job_fit_analyses(session)
+    ]
+
+
+@router.get("/job-fit/{request_id}", response_model=JobFitAnalysisRead)
+def read_job_fit_analysis(
+    request_id: str,
+    session: Session = Depends(_session),
+) -> JobFitAnalysisRead:
+    return JobFitAnalysisRead.model_validate(
+        _or_404(lambda: get_job_fit_analysis(session, request_id))
+    )

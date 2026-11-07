@@ -6,7 +6,32 @@ dist/
 .vite/
 .tarballs/
 
-# 日志与系统文件
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets and config
+.env
+.env.*
+!.env.example
+*.local
+
+# Local databases and logs
+*.db
+*.sqlite3
 *.log
+
+# Editor / OS
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
