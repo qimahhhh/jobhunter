@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .agents import CareerAnalystAgent
 from .filters import FilterOutcome, hard_filter
+from .job_hunter import JobHunterAgent, dedupe_key
 from .models import (
     Job,
     JobFitAnalysis,
@@ -32,6 +33,13 @@ from .schemas_resources import (
     ResumeCreate,
     UserCreate,
     UserRequirements,
+)
+from .schemas_search import (
+    JobIngestRequest,
+    JobIngestResponse,
+    JobQuery,
+    JobSearchRequest,
+    JobSearchResponse,
 )
 
 
@@ -166,11 +174,69 @@ def get_resume(session: Session, resume_id: str) -> Resume:
 
 
 def create_job(session: Session, data: JobCreate) -> Job:
+    """Record a job someone entered by hand.
+
+    A manual entry carries no ``dedupe_key``. Two openings with the same title
+    at the same company can be two real postings, and a unique index cannot
+    tell the difference, so deduplication belongs to ``ingest_jobs``: there the
+    caller is a collector stating "this is what the source published today".
+    """
+
     job = _job_input_to_job(data, id=_id())
     session.add(job)
     session.commit()
     session.refresh(job)
     return job
+
+
+def ingest_jobs(session: Session, data: JobIngestRequest) -> JobIngestResponse:
+    """Store a collector's batch, treating a known posting as the same posting.
+
+    The first source stays as provenance, because that is what a verification
+    links back to. The facts the posting publishes (salary, location, text) are
+    refreshed, and ``last_seen_at`` becomes now, so an expired posting is one
+    that stopped being seen rather than one that was deleted.
+    """
+
+    created: list[str] = []
+    updated: list[str] = []
+    seen_at = utc_now()
+    known: dict[str, Job] = {}
+
+    for item in data.jobs:
+        key = dedupe_key(
+            title=item.title, company=item.company, location=item.location
+        )
+        # ``known`` covers a source that lists the same posting twice in one
+        # batch: with autoflush off the pending insert is invisible to the
+        # lookup, and the second copy would hit the unique index on commit.
+        job = known.get(key)
+        if job is None:
+            job = session.scalar(select(Job).where(Job.dedupe_key == key))
+        if job is None:
+            job = _job_input_to_job(item, id=_id())
+            job.dedupe_key = key
+            job.last_seen_at = seen_at
+            session.add(job)
+            known[key] = job
+            created.append(job.id)
+            continue
+
+        job.description = item.description
+        job.requirements = item.requirements
+        job.employment_type = item.employment_type
+        job.location = item.location
+        job.salary_min = item.salary_min
+        job.salary_max = item.salary_max
+        job.salary_period = item.salary_period
+        job.last_seen_at = seen_at
+        known[key] = job
+        updated.append(job.id)
+
+    session.commit()
+    return JobIngestResponse(
+        created=created, updated=updated, total=len(data.jobs)
+    )
 
 
 def get_job(session: Session, job_id: str) -> Job:
@@ -188,6 +254,79 @@ def list_jobs(
     if employment_type is not None:
         query = query.filter(Job.employment_type == employment_type)
     return list(query.order_by(Job.created_at.desc()).all())
+
+
+def _query_with_profile_defaults(
+    query: JobQuery, profile: UserProfile
+) -> tuple[JobQuery, list[str]]:
+    """Fill a query from the stored profile, without overriding explicit input.
+
+    The profile is a set of expectations the user already confirmed, so it is a
+    reasonable default and never a replacement: anything the caller typed wins.
+    Only the fields that were actually taken from the profile are reported, so a
+    result can say where its constraints came from.
+    """
+
+    requirements = UserRequirements.model_validate(profile.requirements)
+    capabilities = profile.capabilities or {}
+    updates: dict[str, object] = {}
+    notes: list[str] = []
+    constrained = False
+
+    if not query.role:
+        roles = [
+            role for role in capabilities.get("target_roles", []) if role.strip()
+        ]
+        updates["role"] = (roles[0] if roles else "") or requirements.desired_role
+        notes.append("搜索方向取自画像的目标岗位")
+
+    if not query.keywords:
+        skills = [
+            skill for skill in capabilities.get("skills", []) if skill.strip()
+        ][:8]
+        if skills:
+            updates["keywords"] = skills
+            notes.append("检索关键词取自画像技能的前 8 项")
+
+    if not query.locations and requirements.locations:
+        updates["locations"] = list(requirements.locations)
+        constrained = True
+
+    if query.employment_type is None:
+        updates["employment_type"] = requirements.employment_type
+        constrained = True
+
+    if query.salary_min is None and requirements.salary_min is not None:
+        updates["salary_min"] = requirements.salary_min
+        updates["salary_period"] = requirements.salary_period
+        constrained = True
+
+    if constrained:
+        notes.append("岗位类型、地点与薪资下限沿用了画像中的求职期望")
+
+    return query.model_copy(update=updates), notes
+
+
+def search_jobs(session: Session, data: JobSearchRequest) -> JobSearchResponse:
+    """Rank the stored postings for a query, optionally seeded from a profile."""
+
+    query = data.query
+    notes: list[str] = []
+    if data.profile_id:
+        profile = get_profile(session, data.profile_id)
+        query, profile_notes = _query_with_profile_defaults(query, profile)
+        notes.extend(profile_notes)
+
+    jobs = session.query(Job).order_by(Job.collected_at.desc()).all()
+    result = JobHunterAgent().run(jobs, query)
+    return JobSearchResponse(
+        query=result.query,
+        candidates=result.candidates,
+        excluded=result.excluded,
+        total_scanned=result.total_scanned,
+        notes=notes + result.notes,
+        applied_profile_id=data.profile_id,
+    )
 
 
 def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:

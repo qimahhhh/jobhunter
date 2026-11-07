@@ -14,6 +14,15 @@ from .models import Base
 logger = logging.getLogger(__name__)
 
 _UNIQUE_PROFILE_INDEX = "ux_user_profiles_user_id"
+_UNIQUE_JOB_INDEX = "ux_jobs_dedupe_key"
+
+# Columns ``jobs`` grew after the first schema. ``ALTER TABLE`` in SQLite takes
+# a constant definition, and an existing row simply keeps NULL / defaults.
+_ADDED_JOB_COLUMNS = (
+    ("employment_type", "VARCHAR(32)"),
+    ("dedupe_key", "VARCHAR(512)"),
+    ("last_seen_at", "DATETIME"),
+)
 
 # Columns a stored profile grew after the first schema. ``ALTER TABLE`` in
 # SQLite needs a constant default, and '[]' parses back into an empty list.
@@ -51,13 +60,37 @@ def _has_unique_index(inspector: Any, table: str, column: str) -> bool:
 
 
 def _migrate_jobs(inspector: Any) -> None:
-    """Databases created before the employment type column need it added."""
+    """Add the columns that let a posting be recognised when it reappears.
 
-    if "employment_type" in _columns(inspector, "jobs"):
+    The unique index is best effort: a database that already holds the same
+    posting twice cannot take it, and refusing to start would be worse than a
+    warning the developer can act on.
+    """
+
+    columns = _columns(inspector, "jobs")
+    for name, definition in _ADDED_JOB_COLUMNS:
+        if name in columns:
+            continue
+        with engine.begin() as connection:
+            connection.execute(
+                text(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
+            )
+
+    if _has_unique_index(inspector, "jobs", "dedupe_key"):
         return
-    with engine.begin() as connection:
-        connection.execute(
-            text("ALTER TABLE jobs ADD COLUMN employment_type VARCHAR(32)")
+
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS {_UNIQUE_JOB_INDEX} "
+                    "ON jobs (dedupe_key)"
+                )
+            )
+    except IntegrityError:
+        logger.warning(
+            "jobs already holds duplicate postings; unique index %s was not created",
+            _UNIQUE_JOB_INDEX,
         )
 
 

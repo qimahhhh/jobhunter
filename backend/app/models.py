@@ -83,8 +83,16 @@ class Job(Base):
     verification_status: Mapped[str] = mapped_column(
         String(32), default="pending_verification"
     )
+    # Identity of the posting across platforms, filled on ingest. Nullable so
+    # rows created before the column existed stay valid and simply never dedupe.
+    dedupe_key: Mapped[str | None] = mapped_column(
+        String(512), unique=True, index=True, nullable=True
+    )
     collected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     last_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

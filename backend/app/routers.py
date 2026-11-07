@@ -44,6 +44,12 @@ from .schemas_resources import (
     UserCreate,
     UserRead,
 )
+from .schemas_search import (
+    JobIngestRequest,
+    JobIngestResponse,
+    JobSearchRequest,
+    JobSearchResponse,
+)
 from .resume_draft import (
     blocks_from_profile,
     blocks_from_stored_chunks,
@@ -65,8 +71,10 @@ from .services import (
     get_profile,
     get_resume,
     get_user,
+    ingest_jobs,
     list_job_fit_analyses,
     list_jobs,
+    search_jobs,
 )
 
 
@@ -446,6 +454,35 @@ def read_jobs(
         JobRead.model_validate(job)
         for job in list_jobs(session, employment_type=employment_type)
     ]
+
+
+@router.post("/jobs/ingest", response_model=JobIngestResponse, status_code=201)
+def ingest_job_batch(
+    data: JobIngestRequest, session: Session = Depends(_session)
+) -> JobIngestResponse:
+    """Store a collector's batch and report what was new.
+
+    Idempotent on purpose: running the same collection twice must not double the
+    job list. A posting that reappears is the same row with a fresh
+    ``last_seen_at``, which is what later tells an active posting from an
+    expired one.
+    """
+
+    return ingest_jobs(session, data)
+
+
+@router.post("/job-search", response_model=JobSearchResponse)
+def run_job_search(
+    data: JobSearchRequest, session: Session = Depends(_session)
+) -> JobSearchResponse:
+    """Rank stored postings for a query, optionally seeded from a profile.
+
+    Exclusions are part of the answer: a job that is missing because it is in
+    another city is a different outcome from a job that was never collected,
+    and only the first one can be explained to the user.
+    """
+
+    return _or_404(lambda: search_jobs(session, data))
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead)

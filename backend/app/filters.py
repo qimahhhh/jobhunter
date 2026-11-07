@@ -127,31 +127,46 @@ def _check_salary(job: Job, requirements: UserRequirements) -> tuple[bool | None
     return True, ""
 
 
-def hard_filter(job: Job, requirements: UserRequirements) -> FilterOutcome:
+def hard_filter(
+    job: Job,
+    requirements: UserRequirements,
+    *,
+    employment_type: bool = True,
+    location: bool = True,
+    salary: bool = True,
+) -> FilterOutcome:
     """Apply the deterministic hard constraints before any scoring.
 
     A missing field is reported as unknown instead of rejected, so incomplete
     job data never silently disappears from the result list.
+
+    The three switches exist for callers that only constrain one dimension: a
+    search that names a city but no salary must not reject a posting for having
+    no salary, so it turns the salary check off instead of faking an
+    expectation.
     """
 
     rejections: list[str] = []
     unknowns: list[str] = []
 
-    checks = (
-        _check_employment_type(job, requirements),
-        _check_location(job, requirements),
-    )
+    checks: list[tuple[bool | None, str]] = []
+    if employment_type:
+        checks.append(_check_employment_type(job, requirements))
+    if location:
+        checks.append(_check_location(job, requirements))
+
     for ok, reason in checks:
         if ok is False:
             rejections.append(reason)
         elif ok is None:
             unknowns.append(reason)
 
-    salary_ok, salary_reason = _check_salary(job, requirements)
-    if salary_ok is False:
-        rejections.append(salary_reason)
-    elif salary_ok is None:
-        unknowns.append(salary_reason)
+    if salary:
+        salary_ok, salary_reason = _check_salary(job, requirements)
+        if salary_ok is False:
+            rejections.append(salary_reason)
+        elif salary_ok is None:
+            unknowns.append(salary_reason)
 
     return FilterOutcome(
         passed=not rejections,
