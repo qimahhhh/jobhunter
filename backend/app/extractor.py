@@ -8,11 +8,13 @@ instead of being trusted, so a profile the model invented is visible as
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from pydantic import ValidationError
 
 from .chunking import (
+    Block,
     blocks_from_text,
     chunk_blocks,
     merge_blocks,
@@ -78,10 +80,27 @@ def extract_profile(
     *,
     max_chunk_tokens: int = 900,
 ) -> ExtractionResult:
-    """Chunk the resume, ask the model once, and check what came back."""
+    """Chunk free text, ask the model once, and check what came back."""
 
-    blocks = merge_blocks(blocks_from_text(text))
-    chunks = chunk_blocks(blocks, max_tokens=max_chunk_tokens)
+    return extract_profile_from_blocks(
+        blocks_from_text(text), client, max_chunk_tokens=max_chunk_tokens
+    )
+
+
+def extract_profile_from_blocks(
+    blocks: Sequence[Block],
+    client: LLMClient,
+    *,
+    max_chunk_tokens: int = 900,
+) -> ExtractionResult:
+    """Same pipeline, for blocks that came from a PDF or a DOCX.
+
+    ``blocks_from_pdf`` and ``blocks_from_docx`` do layout work that
+    ``blocks_from_text`` cannot, so a file has to enter here instead of being
+    flattened back into a string and re-split as plain text.
+    """
+
+    chunks = chunk_blocks(merge_blocks(blocks), max_tokens=max_chunk_tokens)
     chunk_ids = [chunk.chunk_id for chunk in chunks]
     if not chunks:
         return ExtractionResult(
