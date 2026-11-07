@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .schemas import JobFitRequest, JobFitResponse
+
 
 class UserCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
@@ -94,17 +96,28 @@ class JobRead(JobCreate):
 
 
 class JobMatchCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     user_profile_id: str
     job_id: str
-    score: float = Field(ge=0, le=1)
-    match_points: list[str] = Field(default_factory=list)
-    gaps: list[str] = Field(default_factory=list)
-    recommendation: str = Field(min_length=1)
-    confidence: float = Field(ge=0, le=1)
 
 
 class JobMatchRead(JobMatchCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    score: float
+    match_points: list[str]
+    gaps: list[str]
+    recommendation: str
+    confidence: float
+    created_at: datetime
+
+
+class JobFitAnalysisRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    request_id: str
+    request: JobFitRequest
+    result: JobFitResponse
     created_at: datetime

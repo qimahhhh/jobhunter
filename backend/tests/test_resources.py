@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -79,19 +80,17 @@ class ResourceModelsTest(unittest.TestCase):
             JobMatchCreate(
                 user_profile_id=profile.id,
                 job_id=job.id,
-                score=0.8,
-                match_points=["Python"],
-                gaps=["SQL"],
-                recommendation="Prepare evidence",
-                confidence=0.7,
             ),
         )
 
-        self.assertEqual(get_job_match(self.session, match.id).score, 0.8)
+        self.assertEqual(get_job_match(self.session, match.id).score, 1.0)
+        self.assertEqual(match.match_points, ["python"])
+        self.assertEqual(match.gaps, [])
+        self.assertTrue(match.recommendation)
         self.assertEqual(resume.version, 1)
         self.assertEqual(job.verification_status, "source_attached")
         self.assertEqual(UserRead.model_validate(user).email, "student@example.com")
-        self.assertEqual(JobMatchRead.model_validate(match).score, 0.8)
+        self.assertEqual(JobMatchRead.model_validate(match).score, 1.0)
 
     def test_duplicate_email_returns_conflict_and_keeps_session_usable(self) -> None:
         data = UserCreate(email="duplicate@example.com", display_name="Student")
@@ -106,6 +105,18 @@ class ResourceModelsTest(unittest.TestCase):
             self.session,
             UserCreate(email="another@example.com", display_name="Another"),
         )
+
+    def test_job_match_does_not_accept_client_generated_results(self) -> None:
+        with self.assertRaises(ValidationError):
+            JobMatchCreate.model_validate(
+                {
+                    "user_profile_id": "profile-id",
+                    "job_id": "job-id",
+                    "score": 0.99,
+                    "gaps": ["client-supplied"],
+                    "recommendation": "client-supplied",
+                }
+            )
 
 
 if __name__ == "__main__":

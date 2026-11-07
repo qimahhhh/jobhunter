@@ -4,9 +4,14 @@ import json
 import unittest
 from unittest.mock import patch
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from backend.app import main as api
+from backend.app.models import Base
 from backend.app.orchestrator import JobFitOrchestrator, JobFitRunError
 from backend.app.schemas import JobFitRequest, JobInput, ProfileInput, RunEvent
+from backend.app.services import get_job_fit_analysis
 
 
 class FailingAnalystAgent:
@@ -44,6 +49,20 @@ class JobFitOrchestratorTest(unittest.TestCase):
         self.assertEqual(len(response.interview_questions), 3)
         self.assertEqual([event.status for event in response.run_log], ["ok", "ok", "ok"])
         self.assertTrue(response.request_id)
+        self.assertGreaterEqual(response.fit_report.score, 0)
+        self.assertLessEqual(response.fit_report.score, 1)
+
+    def test_api_persists_successful_analysis(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
+
+        response = api.job_fit(make_request(), session=session)
+        analysis = get_job_fit_analysis(session, response.request_id)
+
+        self.assertEqual(analysis.result["request_id"], response.request_id)
+        self.assertEqual(analysis.result["fit_report"]["score"], response.fit_report.score)
+        session.close()
 
     def test_failed_stage_preserves_run_log(self) -> None:
         orchestrator = JobFitOrchestrator(analyst=FailingAnalystAgent())
@@ -84,7 +103,7 @@ class JobFitOrchestratorTest(unittest.TestCase):
 
         with patch.object(api.orchestrator, "run", side_effect=failure):
             with self.assertLogs("backend.app.main", level="ERROR") as logs:
-                response = api.job_fit(make_request())
+                response = api.job_fit(make_request(), session=None)
 
         body = json.loads(response.body)
         self.assertEqual(response.status_code, 500)

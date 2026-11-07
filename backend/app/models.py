@@ -95,3 +95,12 @@ class JobMatch(Base):
     recommendation: Mapped[str] = mapped_column(Text)
     confidence: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class JobFitAnalysis(Base):
+    __tablename__ = "job_fit_analyses"
+
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -16,7 +16,9 @@ python -m venv .venv
 
 ## API 说明
 
-`POST /api/v1/job-fit` 接收一份学生档案和一个目标岗位，并返回来源检查、匹配报告、简历建议、面试问题、警告信息和执行日志。
+`POST /api/v1/job-fit` 接收一份学生档案和一个目标岗位，生成来源检查、匹配报告、简历建议、面试问题、警告信息和执行日志，并将成功结果写入数据库。可通过 `GET /api/v1/job-fit` 查看历史，或通过 `GET /api/v1/job-fit/{request_id}` 查询单次分析。
+
+`POST /api/v1/job-matches` 只接收用户档案和岗位 ID；系统会读取对应数据并计算 `score`、`match_points`、`gaps`、`recommendation` 和 `confidence`。
 
 ## 测试
 
@@ -29,5 +31,5 @@ python -m unittest discover -s backend/tests -v
 
 1. 添加真实岗位测试数据和来源验证。
 2. 将三个模拟代理替换为 MiMo 客户端。
-3. 持久化请求、报告、来源快照和失败信息。
+3. 持久化来源快照和失败信息。
 4. 添加 React 工作台界面。

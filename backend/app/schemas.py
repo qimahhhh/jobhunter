@@ -34,6 +34,7 @@ class JobVerification(BaseModel):
 
 class FitReport(BaseModel):
     summary: str
+    score: float = Field(ge=0, le=1)
     match_points: list[str]
     gaps: list[str]
     recommendation: str

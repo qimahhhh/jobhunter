@@ -5,14 +5,16 @@ import logging
 import os
 import re
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 
-from .db import init_db
+from .db import get_session, init_db
 from .orchestrator import JobFitOrchestrator, JobFitRunError
 from .routers import router
 from .schemas import JobFitFailureResponse, JobFitRequest, JobFitResponse
+from .services import create_job_fit_analysis
 
 
 logger = logging.getLogger(__name__)
@@ -63,9 +65,14 @@ def health() -> dict[str, str]:
     response_model=JobFitResponse,
     responses={500: {"model": JobFitFailureResponse}},
 )
-def job_fit(request: JobFitRequest) -> JobFitResponse | JSONResponse:
+def job_fit(
+    request: JobFitRequest,
+    session: Session = Depends(get_session),
+) -> JobFitResponse | JSONResponse:
     try:
-        return orchestrator.run(request)
+        response = orchestrator.run(request)
+        create_job_fit_analysis(session, request, response)
+        return response
     except JobFitRunError as exc:
         logger.exception(
             "job-fit request %s failed at stage %s; run_log=%s",

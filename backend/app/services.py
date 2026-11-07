@@ -5,7 +5,9 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .models import Job, JobMatch, Resume, User, UserProfile
+from .agents import CareerAnalystAgent
+from .models import Job, JobFitAnalysis, JobMatch, Resume, User, UserProfile
+from .schemas import JobFitRequest, JobFitResponse, JobInput, ProfileInput
 from .schemas_resources import (
     JobCreate,
     JobMatchCreate,
@@ -103,9 +105,34 @@ def get_job(session: Session, job_id: str) -> Job:
 
 
 def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
-    get_profile(session, data.user_profile_id)
-    get_job(session, data.job_id)
-    match = JobMatch(id=_id(), **data.model_dump())
+    profile = get_profile(session, data.user_profile_id)
+    job = get_job(session, data.job_id)
+    capabilities = profile.capabilities
+    report = CareerAnalystAgent().run(
+        ProfileInput(
+            summary=capabilities["summary"],
+            skills=capabilities.get("skills", []),
+            experiences=capabilities.get("experiences", []),
+        ),
+        JobInput(
+            title=job.title,
+            company=job.company,
+            description=job.description,
+            requirements=job.requirements,
+            source_name=job.source_name,
+            source_url=job.source_url,
+        ),
+    )
+    match = JobMatch(
+        id=_id(),
+        user_profile_id=data.user_profile_id,
+        job_id=data.job_id,
+        score=report.score,
+        match_points=report.match_points,
+        gaps=report.gaps,
+        recommendation=report.recommendation,
+        confidence=report.confidence,
+    )
     session.add(match)
     session.commit()
     session.refresh(match)
@@ -117,3 +144,32 @@ def get_job_match(session: Session, match_id: str) -> JobMatch:
     if match is None:
         raise NotFoundError("job match not found")
     return match
+
+
+def create_job_fit_analysis(
+    session: Session,
+    request: JobFitRequest,
+    result: JobFitResponse,
+) -> JobFitAnalysis:
+    analysis = JobFitAnalysis(
+        request_id=result.request_id,
+        request=request.model_dump(mode="json"),
+        result=result.model_dump(mode="json"),
+    )
+    session.add(analysis)
+    session.commit()
+    session.refresh(analysis)
+    return analysis
+
+
+def get_job_fit_analysis(session: Session, request_id: str) -> JobFitAnalysis:
+    analysis = session.get(JobFitAnalysis, request_id)
+    if analysis is None:
+        raise NotFoundError("job fit analysis not found")
+    return analysis
+
+
+def list_job_fit_analyses(session: Session) -> list[JobFitAnalysis]:
+    return list(
+        session.query(JobFitAnalysis).order_by(JobFitAnalysis.created_at.desc()).all()
+    )

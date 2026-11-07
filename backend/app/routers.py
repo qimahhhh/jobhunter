@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .db import get_session
 from .schemas_resources import (
     JobCreate,
+    JobFitAnalysisRead,
     JobMatchCreate,
     JobMatchRead,
     JobRead,
@@ -28,10 +29,12 @@ from .services import (
     create_resume,
     create_user,
     get_job,
+    get_job_fit_analysis,
     get_job_match,
     get_profile,
     get_resume,
     get_user,
+    list_job_fit_analyses,
 )
 
 
@@ -101,3 +104,23 @@ def add_job_match(data: JobMatchCreate, session: Session = Depends(_session)) ->
 @router.get("/job-matches/{match_id}", response_model=JobMatchRead)
 def read_job_match(match_id: str, session: Session = Depends(_session)) -> JobMatchRead:
     return JobMatchRead.model_validate(_read_or_404(lambda: get_job_match(session, match_id)))
+
+
+@router.get("/job-fit", response_model=list[JobFitAnalysisRead])
+def read_job_fit_analyses(
+    session: Session = Depends(_session),
+) -> list[JobFitAnalysisRead]:
+    return [
+        JobFitAnalysisRead.model_validate(analysis)
+        for analysis in list_job_fit_analyses(session)
+    ]
+
+
+@router.get("/job-fit/{request_id}", response_model=JobFitAnalysisRead)
+def read_job_fit_analysis(
+    request_id: str,
+    session: Session = Depends(_session),
+) -> JobFitAnalysisRead:
+    return JobFitAnalysisRead.model_validate(
+        _read_or_404(lambda: get_job_fit_analysis(session, request_id))
+    )

@@ -46,28 +46,26 @@ class CareerAnalystAgent:
         job_terms = _terms(job.requirements)
         overlap = profile_terms & job_terms
         gaps = job_terms - profile_terms
+        score = round(len(overlap) / max(len(job_terms), 1), 2)
 
-        match_points = [f"Skill appears in both inputs: {term}" for term in _format_terms(overlap)]
-        if not match_points:
-            match_points = ["No directly comparable skill keyword was provided yet."]
-
-        gap_output = [
-            f"Job requirement is not explicit in the profile: {term}"
-            for term in _format_terms(gaps)
-        ]
-        if not gap_output:
-            gap_output = ["No obvious keyword gap was found; validate project depth manually."]
+        match_points = _format_terms(overlap)
+        gap_output = _format_terms(gaps)
 
         return FitReport(
             summary=(
-                f"Initial result: the profile and {job.title} have verifiable keyword overlap. "
+                f"Initial result: the profile and {job.title} have "
+                f"{len(overlap)} verifiable keyword overlaps and {len(gaps)} keyword gaps. "
                 "This prepares a job search checklist and is not a hiring probability."
             ),
+            score=score,
             match_points=match_points,
             gaps=gap_output,
             recommendation=(
-                "Prioritize quantified evidence for the job requirements and check resume "
-                "keywords against the source job description."
+                "Prioritize quantified evidence for: "
+                + ", ".join(gap_output)
+                + "."
+                if gap_output
+                else "All explicit job keywords are covered; validate project depth and results manually."
             ),
             confidence=round(min(0.9, 0.4 + 0.1 * len(overlap)), 2),
         )
