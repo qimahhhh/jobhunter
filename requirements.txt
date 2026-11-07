@@ -6,3 +6,7 @@ sqlalchemy>=2,<3
 # the API still starts when they are missing.
 pdfplumber>=0.11,<1
 python-docx>=1.1,<2
+# Model access for the extraction stage. DeepSeek is OpenAI-compatible, so one
+# SDK covers it; python-dotenv just loads the local .env file.
+openai>=1.40,<2
+python-dotenv>=1.0,<2

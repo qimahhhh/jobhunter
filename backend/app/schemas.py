@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 EmploymentType = Literal["internship", "part_time", "full_time", "contract"]
@@ -20,6 +20,44 @@ class ProfileInput(BaseModel):
     summary: str = Field(min_length=1)
     skills: list[str] = Field(default_factory=list)
     experiences: list[str] = Field(default_factory=list)
+
+
+class ProfileDraft(BaseModel):
+    """What the extraction call is asked to return.
+
+    The coercions are deliberate. A model that answers with one string where a
+    list was asked for is a formatting slip, not a reason to throw away the
+    whole extraction, and ``evidence`` has to survive intact because it is the
+    only thing tying a claim back to the resume.
+    """
+
+    summary: str = ""
+    skills: list[str] = Field(default_factory=list)
+    experiences: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+
+    @field_validator("skills", "experiences", "evidence", mode="before")
+    @classmethod
+    def _as_list(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        return value
+
+
+class ResumeExtractionRequest(BaseModel):
+    text: str = Field(min_length=1)
+    max_chunk_tokens: int = Field(default=900, ge=50, le=4000)
+
+
+class ResumeExtractionResponse(BaseModel):
+    profile: ProfileInput | None
+    evidence: list[str]
+    unresolved_evidence: list[str]
+    chunk_ids: list[str]
+    degraded: bool
+    notes: list[str]
 
 
 class JobInput(BaseModel):

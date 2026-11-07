@@ -9,12 +9,16 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from .db import get_session
+from .extractor import extract_profile
+from .llm import DeepSeekClient, LLMClient, LLMError
 from .orchestrator import JobFitOrchestrator, JobFitRunError
 from .schemas import (
     EmploymentType,
     JobFitFailureResponse,
     JobFitRequest,
     JobFitResponse,
+    ResumeExtractionRequest,
+    ResumeExtractionResponse,
 )
 from .schemas_resources import (
     JobCreate,
@@ -55,6 +59,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 health_router = APIRouter(tags=["Health"])
 orchestrator = JobFitOrchestrator()
+_llm_client: LLMClient | None = None
+
+
+def _client() -> LLMClient:
+    """Build the model client on first use.
+
+    Keeping it lazy means the API still starts and serves every other route
+    when no key is configured; the failure shows up as a 503 on the one endpoint
+    that actually needs a model.
+    """
+
+    global _llm_client
+    if _llm_client is None:
+        _llm_client = DeepSeekClient()
+    return _llm_client
 
 
 def _session(session: Session = Depends(get_session)) -> Session:
@@ -129,6 +148,34 @@ def add_profile(data: ProfileCreate, session: Session = Depends(_session)) -> Pr
 @router.get("/profiles/{profile_id}", response_model=ProfileRead)
 def read_profile(profile_id: str, session: Session = Depends(_session)) -> ProfileRead:
     return ProfileRead.model_validate(_or_404(lambda: get_profile(session, profile_id)))
+
+
+@router.post(
+    "/profiles/extract",
+    response_model=ResumeExtractionResponse,
+    responses={503: {"description": "model client is not configured"}},
+)
+def extract_profile_from_resume(data: ResumeExtractionRequest) -> ResumeExtractionResponse:
+    """Chunk resume text and let the model draft a profile from it.
+
+    Nothing is persisted: the draft comes back with the chunk ids it cited so a
+    human (or the frontend) can check it before saving through ``POST /profiles``.
+    """
+
+    try:
+        client = _client()
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    result = extract_profile(data.text, client, max_chunk_tokens=data.max_chunk_tokens)
+    return ResumeExtractionResponse(
+        profile=result.profile,
+        evidence=result.evidence,
+        unresolved_evidence=result.unresolved,
+        chunk_ids=result.chunk_ids,
+        degraded=result.degraded,
+        notes=result.notes,
+    )
 
 
 @router.post("/resumes", response_model=ResumeRead, status_code=201)
