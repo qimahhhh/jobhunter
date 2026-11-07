@@ -363,12 +363,29 @@ def _field_texts(value: Any) -> list[str]:
     """One text per experience-like entry, so a job is never split in half."""
 
     if isinstance(value, Mapping):
-        pairs = [
-            f"{key}: {rendered}"
-            for key, child in value.items()
-            if (rendered := _scalar(child)) is not None and rendered.strip()
-        ]
-        return [" | ".join(pairs)] if pairs else []
+        texts: list[str] = []
+        pairs: list[str] = []
+
+        def flush_pairs() -> None:
+            if pairs:
+                texts.append(" | ".join(pairs))
+                pairs.clear()
+
+        for key, child in value.items():
+            rendered = _scalar(child)
+            if rendered is not None:
+                if rendered.strip():
+                    pairs.append(f"{key}: {rendered}")
+                continue
+            # A nested mapping used to be skipped here because _scalar returns
+            # None for anything that is not flat, which deleted every field
+            # below the first level. Recurse instead and keep the parent key in
+            # the label, so the evidence still shows where a value came from.
+            flush_pairs()
+            texts.extend(f"{key}: {text}" for text in _field_texts(child))
+
+        flush_pairs()
+        return texts
 
     if isinstance(value, (list, tuple)):
         texts: list[str] = []

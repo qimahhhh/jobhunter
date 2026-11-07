@@ -170,6 +170,35 @@ class StructuredSourceTest(unittest.TestCase):
         self.assertIn("title", experiences[0].text)
         self.assertEqual(experiences[0].kind, "field")
 
+    def test_nested_mapping_keeps_its_fields(self) -> None:
+        blocks = blocks_from_mapping({"a": {"b": {"c": 1}}})
+
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0].section, "a")
+        self.assertEqual(blocks[0].text, "b: c: 1")
+
+    def test_nested_mapping_keeps_the_key_path(self) -> None:
+        blocks = blocks_from_mapping(
+            {"education": {"school": {"name": "北京邮电大学", "city": "北京"}}}
+        )
+
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0].section, "education")
+        self.assertEqual(blocks[0].text, "school: name: 北京邮电大学 | city: 北京")
+
+    def test_scalars_beside_a_nested_mapping_both_survive(self) -> None:
+        blocks = blocks_from_mapping(
+            {"profile": {"name": "张三", "links": {"github": "github.com/zhangsan"}}}
+        )
+
+        self.assertEqual(
+            [block.text for block in blocks],
+            ["name: 张三", "links: github: github.com/zhangsan"],
+        )
+
+    def test_empty_nested_mapping_adds_no_block(self) -> None:
+        self.assertEqual(blocks_from_mapping({"profile": {"links": {}}}), [])
+
     def test_merge_blocks_gives_unique_ids_across_sources(self) -> None:
         merged = merge_blocks(
             blocks_from_text("实习经历\n负责接口优化。"),
