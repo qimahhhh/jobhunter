@@ -274,5 +274,81 @@ class BlocksExtractionTest(unittest.TestCase):
         self.assertEqual(result.chunk_ids, [])
 
 
+class GroupedExtractionTest(unittest.TestCase):
+    """Input that does not fit one prompt is extracted in groups, then merged."""
+
+    TWO_SECTIONS = """教育背景
+北京交通大学 计算机科学与技术 2024.09-2028.06，主修数据结构、操作系统与计算机网络，参与 ACM 集训队训练并负责题解整理，累计完成三百余道算法题。
+项目经验
+HexWorkspace 智能文档工作平台 2026.07 至今，负责独立索引版本与可信检索链路，设计隔离构建、完整性校验与事务原子发布机制，结合向量召回与权威状态复核，防止未完成索引进入模型上下文。
+"""
+
+    THREE_SECTIONS = """教育背景
+北京交通大学 计算机科学与技术 2024.09-2028.06，主修数据结构、操作系统与计算机网络，参与 ACM 集训队训练并负责题解整理，累计完成三百余道算法题。
+实习经历
+北京知明而行网络科技有限公司 2026.07-2026.10，负责 LLM JSON 统一解析修复组件，构建设计严格解析到候选提取再到本地修复最后到模型兜底的恢复链路，并补充回归用例。
+项目经验
+HexWorkspace 智能文档工作平台 2026.07 至今，负责独立索引版本与可信检索链路，设计隔离构建、完整性校验与事务原子发布机制，结合向量召回与权威状态复核，防止未完成索引进入模型上下文。
+"""
+
+    def test_long_input_is_extracted_in_groups_and_merged(self) -> None:
+        client = FakeClient(
+            [
+                {"summary": "教育背景部分", "skills": ["C++"], "evidence": ["c001"]},
+                {"summary": "实习部分", "skills": ["Python"], "evidence": ["c002"]},
+                {"summary": "项目部分", "skills": ["Java"], "evidence": ["c003"]},
+                {
+                    "summary": "合并后：学生，有实习与项目经历。",
+                    "skills": ["C++", "Python", "Java"],
+                    "experiences": ["知明而行实习", "HexWorkspace"],
+                    "evidence": ["c001", "c002", "c003"],
+                },
+            ]
+        )
+
+        result = extract_profile(self.THREE_SECTIONS, client, max_context_tokens=60)
+
+        # Three groups plus the merge call.
+        self.assertEqual(len(client.calls), 4)
+        self.assertIn("局部画像如下", client.calls[-1])
+        self.assertEqual(result.profile.summary, "合并后：学生，有实习与项目经历。")
+        self.assertEqual(result.evidence, ["c001", "c002", "c003"])
+        self.assertFalse(result.degraded)
+        self.assertTrue(any("分 3 组抽取后合并" in note for note in result.notes))
+
+    def test_merge_falls_back_to_concatenation_when_the_call_fails(self) -> None:
+        client = FakeClient(
+            [
+                {"summary": "第一段", "skills": ["C++"], "evidence": ["c001"]},
+                {"summary": "第二段", "skills": ["Python", "C++"], "evidence": ["c002"]},
+                LLMError("merge failed"),
+            ]
+        )
+
+        result = extract_profile(self.TWO_SECTIONS, client, max_context_tokens=60)
+
+        self.assertEqual(result.profile.summary, "第一段")
+        self.assertEqual(result.profile.skills, ["C++", "Python"])
+        self.assertEqual(result.evidence, ["c001", "c002"])
+        self.assertFalse(result.degraded)
+        self.assertTrue(any("合并调用失败" in note for note in result.notes))
+
+    def test_a_failed_group_is_reported_but_does_not_lose_the_rest(self) -> None:
+        client = FakeClient(
+            [
+                {"summary": "第一段", "skills": ["C++"], "evidence": ["c001"]},
+                LLMError("boom"),
+                LLMError("boom again"),
+                {"summary": "合并", "skills": ["C++"], "evidence": ["c001"]},
+            ]
+        )
+
+        result = extract_profile(self.TWO_SECTIONS, client, max_context_tokens=60)
+
+        self.assertEqual(result.profile.summary, "合并")
+        self.assertFalse(result.degraded)
+        self.assertTrue(any("1 个分组抽取失败" in note for note in result.notes))
+
+
 if __name__ == "__main__":
     unittest.main()

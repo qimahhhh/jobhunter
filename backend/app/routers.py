@@ -11,9 +11,20 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from .chunking import blocks_from_docx, blocks_from_pdf
+from .chunking import (
+    Block,
+    blocks_from_docx,
+    blocks_from_mapping,
+    blocks_from_pdf,
+    blocks_from_text,
+)
 from .db import get_session
-from .extractor import ExtractionResult, extract_profile, extract_profile_from_blocks
+from .extractor import (
+    ExtractionResult,
+    extract_profile,
+    extract_profile_from_blocks,
+    extract_profile_from_sources,
+)
 from .llm import DeepSeekClient, LLMClient, LLMError
 from .orchestrator import JobFitOrchestrator, JobFitRunError
 from .schemas import (
@@ -23,6 +34,7 @@ from .schemas import (
     JobFitResponse,
     ResumeExtractionRequest,
     ResumeExtractionResponse,
+    ResumeSourceBundleRequest,
 )
 from .schemas_resources import (
     CapabilityProfile,
@@ -267,6 +279,53 @@ async def extract_profile_from_upload(
     # pool: otherwise one 5s extraction stalls every other request on the loop.
     result = await run_in_threadpool(
         extract_profile_from_blocks, blocks, client, max_chunk_tokens=max_chunk_tokens
+    )
+    return _extraction_response(result)
+
+
+@router.post(
+    "/profiles/extract/bundle",
+    response_model=ResumeExtractionResponse,
+    responses={
+        422: {"description": "no source was provided"},
+        503: {"description": "model client is not configured"},
+    },
+)
+def extract_profile_from_bundle(
+    data: ResumeSourceBundleRequest,
+) -> ResumeExtractionResponse:
+    """Draft a profile from resume text, a self description and projects.
+
+    All three inputs are optional and at least one is required. They are merged
+    before chunking, so a citation still names the source it came from and the
+    difference between "I interned there" and "my project used that" survives
+    into the draft.
+    """
+
+    groups: list[list[Block]] = []
+    if data.resume_text and data.resume_text.strip():
+        groups.append(blocks_from_text(data.resume_text, source="resume"))
+    if data.self_description and data.self_description.strip():
+        groups.append(
+            blocks_from_text(data.self_description, source="self_description")
+        )
+    if data.projects:
+        # A list of project entries is wrapped so each one keeps its own block
+        # instead of being flattened into a single string.
+        payload = (
+            {"projects": data.projects}
+            if isinstance(data.projects, list)
+            else data.projects
+        )
+        groups.append(blocks_from_mapping(payload, source="project"))
+
+    try:
+        client = _client()
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    result = extract_profile_from_sources(
+        groups, client, max_chunk_tokens=data.max_chunk_tokens
     )
     return _extraction_response(result)
 

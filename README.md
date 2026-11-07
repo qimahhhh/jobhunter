@@ -32,6 +32,7 @@ python -m venv .venv
 | `POST /api/v1/profiles`、`GET /api/v1/profiles/{profile_id}` | 创建或更新用户画像（一个用户只有一份，重复提交覆盖既有画像），并支持按 id 查询。 |
 | `POST /api/v1/profiles/extract` | 提交简历纯文本，解析成 chunk 后让模型抽取画像草稿；返回证据引用、岗位方向建议、待补充问题与 degraded 标记，不落库。 |
 | `POST /api/v1/profiles/extract/file` | 上传 PDF/DOCX 简历文件（请求体为文件字节，`filename` 查询参数决定解析器），响应与 `/profiles/extract` 相同。 |
+| `POST /api/v1/profiles/extract/bundle` | 一次提交多来源：`resume_text`、`self_description`、`projects`（JSON，对象或数组）至少一项，合并后统一切块抽取；引用表头保留 `source` 标签，不落库。 |
 | `POST /api/v1/profiles/extract/confirm` | 用户校对、修改抽取草稿后提交确认（人工确认节点），写入用户画像（重复确认更新同一份画像）；`recommended_roles` 存为 `suggested_roles`，用户保留或修改后的方向存为 `target_roles`，未修改时 `target_roles_source` 标为 `suggested`；草稿的 `missing_information` 一并落库；用户不存在返回 `404`。 |
 | `POST /api/v1/resumes`、`GET /api/v1/resumes/{resume_id}` | 保存和查询来源类型及内容结构化的简历记录。 |
 | `POST /api/v1/jobs`、`GET /api/v1/jobs`、`GET /api/v1/jobs/{job_id}` | 创建和查询岗位；列表支持 `employment_type` 筛选。 |
@@ -59,6 +60,8 @@ python -m unittest discover -s backend/tests -v
 该脚本支持 PDF、DOCX、TXT 和 Markdown 文件。
 
 API 侧的 `POST /api/v1/profiles/extract/file` 接收同样的 PDF/DOCX 简历文件：请求体是原始文件字节，`filename` 查询参数决定用哪个解析器，前端一次 `fetch` 即可上传；抽取结果与 `POST /api/v1/profiles/extract` 一致，不持久化。
+
+`POST /api/v1/profiles/extract/bundle` 把简历文本、自然语言自述和项目 JSON 合并成一份上下文再抽取；`source` 标签保证引用能区分“我在哪实习”和“我的项目用了什么”。当渲染后的上下文超过预算（默认 6000 token），抽取会自动改为分组进行再合并：优先用一次模型调用合并局部草稿，合并失败则退化为去重拼接，保证不会因为截断提示词而静默丢内容。
 
 ## 后续计划
 

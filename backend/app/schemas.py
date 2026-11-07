@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 EmploymentType = Literal["internship", "part_time", "full_time", "contract"]
@@ -58,6 +58,33 @@ class ProfileDraft(BaseModel):
 class ResumeExtractionRequest(BaseModel):
     text: str = Field(min_length=1)
     max_chunk_tokens: int = Field(default=900, ge=50, le=4000)
+
+
+class ResumeSourceBundleRequest(BaseModel):
+    """Several inputs for one draft: resume text, projects, self description.
+
+    Files cannot travel in this body, so a PDF or DOCX resumes through
+    ``/profiles/extract/file``; this endpoint is for the case where the user has
+    a project structure or a self description to add to the material.
+    """
+
+    resume_text: str | None = None
+    self_description: str | None = None
+    projects: dict[str, Any] | list[Any] | None = None
+    max_chunk_tokens: int = Field(default=900, ge=50, le=4000)
+
+    @model_validator(mode="after")
+    def _has_a_source(self) -> "ResumeSourceBundleRequest":
+        provided = (
+            self.resume_text,
+            self.self_description,
+            self.projects,
+        )
+        if not any(value.strip() if isinstance(value, str) else value for value in provided):
+            raise ValueError(
+                "至少需要一份输入：resume_text、self_description 或 projects"
+            )
+        return self
 
 
 class ResumeExtractionResponse(BaseModel):

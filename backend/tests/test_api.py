@@ -641,6 +641,51 @@ class ExtractionApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["recommended_roles"], ["AI 应用开发实习生"])
         self.assertEqual(body["missing_information"], ["期望城市"])
 
+    async def test_bundle_merges_resume_projects_and_description(self) -> None:
+        client = _FakeClient(
+            [
+                {
+                    "summary": "学生",
+                    "skills": ["Python"],
+                    "experiences": ["知明而行实习"],
+                    "evidence": ["c001"],
+                }
+            ]
+        )
+        with mock.patch("backend.app.routers._client", return_value=client):
+            response = await _request(
+                "POST",
+                "/api/v1/profiles/extract/bundle",
+                {
+                    "resume_text": "张三\n\n实习经历\n\n北京知明而行网络科技有限公司 AI 应用开发实习生",
+                    "self_description": "我熟悉 Agent Runtime 与上下文管理。",
+                    "projects": [
+                        {
+                            "name": "HexWorkspace",
+                            "role": "后端负责人",
+                            "stack": ["Java", "Qdrant"],
+                        }
+                    ],
+                },
+            )
+
+        self.assertEqual(response.status, 200)
+        prompt = client.calls[0]["user"]
+        self.assertIn("source:resume", prompt)
+        self.assertIn("source:self_description", prompt)
+        self.assertIn("source:project", prompt)
+        self.assertIn("HexWorkspace", prompt)
+        self.assertIn("role: 后端负责人", prompt)
+
+    async def test_bundle_without_any_source_is_rejected(self) -> None:
+        with mock.patch("backend.app.routers._client") as client:
+            response = await _request(
+                "POST", "/api/v1/profiles/extract/bundle", {}
+            )
+
+        self.assertEqual(response.status, 422)
+        client.assert_not_called()
+
     async def test_text_endpoint_contract_is_unchanged(self) -> None:
         client = _FakeClient(
             [
