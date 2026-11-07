@@ -8,10 +8,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.models import Base
-from backend.app.routers import add_user
+from backend.app.routers import add_user, read_jobs
 from backend.app.schemas_resources import (
     CapabilityProfile,
     JobCreate,
+    JobFitRequestRead,
     JobMatchCreate,
     JobMatchRead,
     ProfileCreate,
@@ -27,6 +28,7 @@ from backend.app.services import (
     create_resume,
     create_user,
     get_job_match,
+    list_jobs,
 )
 
 
@@ -71,6 +73,7 @@ class ResourceModelsTest(unittest.TestCase):
                 company="Example",
                 description="AI workflows",
                 requirements="Python",
+                employment_type="internship",
                 source_name="manual",
                 source_url="https://example.com/jobs/1",
             ),
@@ -91,6 +94,68 @@ class ResourceModelsTest(unittest.TestCase):
         self.assertEqual(job.verification_status, "source_attached")
         self.assertEqual(UserRead.model_validate(user).email, "student@example.com")
         self.assertEqual(JobMatchRead.model_validate(match).score, 1.0)
+
+    def test_job_employment_type_is_required_and_filterable(self) -> None:
+        with self.assertRaises(ValidationError):
+            JobCreate(
+                title="AI Intern",
+                company="Example",
+                description="AI workflows",
+                requirements="Python",
+                source_name="manual",
+            )
+
+        internship = create_job(
+            self.session,
+            JobCreate(
+                title="AI Intern",
+                company="Example",
+                description="AI workflows",
+                requirements="Python",
+                employment_type="internship",
+                source_name="manual",
+            ),
+        )
+        create_job(
+            self.session,
+            JobCreate(
+                title="AI Engineer",
+                company="Example",
+                description="AI workflows",
+                requirements="Python",
+                employment_type="full_time",
+                source_name="manual",
+            ),
+        )
+
+        self.assertEqual(
+            [job.id for job in list_jobs(self.session, employment_type="internship")],
+            [internship.id],
+        )
+        self.assertEqual(
+            [
+                job.id
+                for job in read_jobs(
+                    employment_type="internship", session=self.session
+                )
+            ],
+            [internship.id],
+        )
+
+    def test_job_fit_history_accepts_legacy_job_without_employment_type(self) -> None:
+        request = JobFitRequestRead.model_validate(
+            {
+                "profile": {"summary": "Python student"},
+                "job": {
+                    "title": "AI Intern",
+                    "company": "Example",
+                    "description": "AI workflows",
+                    "requirements": "Python",
+                },
+            }
+        )
+
+        self.assertIsNone(request.job.employment_type)
 
     def test_duplicate_email_returns_conflict_and_keeps_session_usable(self) -> None:
         data = UserCreate(email="duplicate@example.com", display_name="Student")

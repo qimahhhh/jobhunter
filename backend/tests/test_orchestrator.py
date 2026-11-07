@@ -33,6 +33,7 @@ def make_request() -> JobFitRequest:
             company="Example Company",
             description="Build AI-assisted workflows.",
             requirements="Python, FastAPI, SQL, communication",
+            employment_type="internship",
             source_name="manual-check",
             source_url="https://example.com/jobs/1",
         ),

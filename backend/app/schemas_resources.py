@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .schemas import JobFitRequest, JobFitResponse
+from .schemas import EmploymentType, JobFitRequest, JobFitResponse, JobInput
 
 
 class UserCreate(BaseModel):
@@ -24,7 +24,7 @@ class UserRead(UserCreate):
 class UserRequirements(BaseModel):
     desired_role: str = Field(min_length=1)
     locations: list[str] = Field(default_factory=list)
-    employment_type: Literal["internship", "part_time", "full_time", "contract"] = "internship"
+    employment_type: EmploymentType = "internship"
     salary_min: int | None = None
     salary_max: int | None = None
     skill_level: str | None = None
@@ -79,6 +79,7 @@ class JobCreate(BaseModel):
     company: str = Field(min_length=1, max_length=255)
     description: str = Field(min_length=1)
     requirements: str = Field(min_length=1)
+    employment_type: EmploymentType
     location: str | None = None
     salary_min: int | None = None
     salary_max: int | None = None
@@ -89,10 +90,19 @@ class JobCreate(BaseModel):
 class JobRead(JobCreate):
     model_config = ConfigDict(from_attributes=True)
 
+    employment_type: EmploymentType | None = None
     id: str
     verification_status: str
     created_at: datetime
     updated_at: datetime
+
+
+class JobInputRead(JobInput):
+    employment_type: EmploymentType | None = None
+
+
+class JobFitRequestRead(JobFitRequest):
+    job: JobInputRead
 
 
 class JobMatchCreate(BaseModel):
@@ -118,6 +128,6 @@ class JobFitAnalysisRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     request_id: str
-    request: JobFitRequest
+    request: JobFitRequestRead
     result: JobFitResponse
     created_at: datetime

@@ -5,6 +5,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+EmploymentType = Literal["internship", "part_time", "full_time", "contract"]
+
+
 class ProfileInput(BaseModel):
     summary: str = Field(min_length=1)
     skills: list[str] = Field(default_factory=list)
@@ -16,6 +19,7 @@ class JobInput(BaseModel):
     company: str = Field(min_length=1)
     description: str = Field(min_length=1)
     requirements: str = Field(min_length=1)
+    employment_type: EmploymentType
     source_name: str = "user-provided"
     source_url: str | None = None
 

@@ -20,6 +20,8 @@ python -m venv .venv
 
 `POST /api/v1/job-matches` 只接收用户档案和岗位 ID；系统会读取对应数据并计算 `score`、`match_points`、`gaps`、`recommendation` 和 `confidence`。
 
+`GET /api/v1/jobs?employment_type=internship` 按岗位类型筛选岗位；岗位创建接口必须提供 `employment_type`。
+
 ## 测试
 
 ```powershell

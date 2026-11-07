@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session
 
 from .agents import CareerAnalystAgent
 from .models import Job, JobFitAnalysis, JobMatch, Resume, User, UserProfile
-from .schemas import JobFitRequest, JobFitResponse, JobInput, ProfileInput
+from .schemas import (
+    EmploymentType,
+    JobFitRequest,
+    JobFitResponse,
+    JobInput,
+    ProfileInput,
+)
 from .schemas_resources import (
     JobCreate,
     JobMatchCreate,
@@ -104,9 +110,21 @@ def get_job(session: Session, job_id: str) -> Job:
     return job
 
 
+def list_jobs(
+    session: Session,
+    employment_type: EmploymentType | None = None,
+) -> list[Job]:
+    query = session.query(Job)
+    if employment_type is not None:
+        query = query.filter(Job.employment_type == employment_type)
+    return list(query.order_by(Job.created_at.desc()).all())
+
+
 def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
     profile = get_profile(session, data.user_profile_id)
     job = get_job(session, data.job_id)
+    if job.employment_type is None:
+        raise ValueError("job employment_type is unknown")
     capabilities = profile.capabilities
     report = CareerAnalystAgent().run(
         ProfileInput(
@@ -119,6 +137,7 @@ def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
             company=job.company,
             description=job.description,
             requirements=job.requirements,
+            employment_type=job.employment_type,
             source_name=job.source_name,
             source_url=job.source_url,
         ),

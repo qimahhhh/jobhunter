@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .db import get_session
+from .schemas import EmploymentType
 from .schemas_resources import (
     JobCreate,
     JobFitAnalysisRead,
@@ -35,6 +36,7 @@ from .services import (
     get_resume,
     get_user,
     list_job_fit_analyses,
+    list_jobs,
 )
 
 
@@ -89,6 +91,17 @@ def read_resume(resume_id: str, session: Session = Depends(_session)) -> ResumeR
 @router.post("/jobs", response_model=JobRead, status_code=201)
 def add_job(data: JobCreate, session: Session = Depends(_session)) -> JobRead:
     return JobRead.model_validate(create_job(session, data))
+
+
+@router.get("/jobs", response_model=list[JobRead])
+def read_jobs(
+    employment_type: EmploymentType | None = None,
+    session: Session = Depends(_session),
+) -> list[JobRead]:
+    return [
+        JobRead.model_validate(job)
+        for job in list_jobs(session, employment_type=employment_type)
+    ]
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead)
