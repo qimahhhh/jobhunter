@@ -20,6 +20,7 @@ from .schemas_resources import (
     UserRead,
 )
 from .services import (
+    ConflictError,
     NotFoundError,
     create_job,
     create_job_match,
@@ -50,7 +51,11 @@ def _read_or_404(operation: Callable[[], Any]) -> Any:
 
 @router.post("/users", response_model=UserRead, status_code=201)
 def add_user(data: UserCreate, session: Session = Depends(_session)) -> UserRead:
-    return UserRead.model_validate(create_user(session, data))
+    try:
+        user = create_user(session, data)
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail="该邮箱已存在") from exc
+    return UserRead.model_validate(user)
 
 
 @router.get("/users/{user_id}", response_model=UserRead)

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import unittest
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.models import Base
+from backend.app.routers import add_user
 from backend.app.schemas_resources import (
     CapabilityProfile,
     JobCreate,
@@ -90,6 +92,20 @@ class ResourceModelsTest(unittest.TestCase):
         self.assertEqual(job.verification_status, "source_attached")
         self.assertEqual(UserRead.model_validate(user).email, "student@example.com")
         self.assertEqual(JobMatchRead.model_validate(match).score, 0.8)
+
+    def test_duplicate_email_returns_conflict_and_keeps_session_usable(self) -> None:
+        data = UserCreate(email="duplicate@example.com", display_name="Student")
+        add_user(data, session=self.session)
+
+        with self.assertRaises(HTTPException) as context:
+            add_user(data, session=self.session)
+
+        self.assertEqual(context.exception.status_code, 409)
+        self.assertEqual(context.exception.detail, "该邮箱已存在")
+        create_user(
+            self.session,
+            UserCreate(email="another@example.com", display_name="Another"),
+        )
 
 
 if __name__ == "__main__":

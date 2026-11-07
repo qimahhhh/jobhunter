@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .models import Job, JobMatch, Resume, User, UserProfile
@@ -18,6 +19,10 @@ class NotFoundError(ValueError):
     pass
 
 
+class ConflictError(ValueError):
+    pass
+
+
 def _id() -> str:
     return uuid.uuid4().hex
 
@@ -25,7 +30,11 @@ def _id() -> str:
 def create_user(session: Session, data: UserCreate) -> User:
     user = User(id=_id(), **data.model_dump())
     session.add(user)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("email already exists") from exc
     session.refresh(user)
     return user
 
