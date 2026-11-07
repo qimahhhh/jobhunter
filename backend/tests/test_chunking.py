@@ -116,6 +116,41 @@ class OversizedBlockTest(unittest.TestCase):
         self.assertTrue(all(chunk.text.strip() for chunk in chunks))
 
 
+class BlockCoverageTest(unittest.TestCase):
+    def test_short_blocks_are_not_dropped_when_the_join_overflows(self) -> None:
+        # Three 7-character blocks estimate to one token each, so their sum fits
+        # a 4-token budget while the joined text estimates to five.
+        blocks = [
+            Block(
+                block_id=f"b{index:04d}",
+                source="resume",
+                section="skills",
+                text="abcdefg",
+                order=index,
+            )
+            for index in range(3)
+        ]
+
+        chunks = chunk_blocks(blocks, max_tokens=4)
+
+        covered = {block_id for chunk in chunks for block_id in chunk.block_ids}
+        self.assertEqual(covered, {"b0000", "b0001", "b0002"})
+
+    def test_every_block_survives_every_budget(self) -> None:
+        blocks = blocks_from_text(RESUME_TEXT)
+        expected = {block.block_id for block in blocks}
+
+        for max_tokens in (4, 8, 16, 40, 900):
+            with self.subTest(max_tokens=max_tokens):
+                chunks = chunk_blocks(blocks, max_tokens=max_tokens)
+                covered = {
+                    block_id for chunk in chunks for block_id in chunk.block_ids
+                }
+
+                self.assertEqual(covered, expected)
+                self.assertTrue(all(chunk.text.strip() for chunk in chunks))
+
+
 class StructuredSourceTest(unittest.TestCase):
     def test_each_experience_stays_in_one_block(self) -> None:
         blocks = blocks_from_mapping(

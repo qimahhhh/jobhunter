@@ -476,21 +476,30 @@ def _split_oversized(block: Block, max_tokens: int) -> list[str]:
 
 
 def _group_blocks(blocks: Sequence[Block], max_tokens: int) -> list[list[Block]]:
+    """Group consecutive blocks so each group's rendered text fits the budget.
+
+    The budget is checked against the text that will actually be sent, not the
+    sum of per-block estimates. Per-block estimates floor at one token and skip
+    the newline separators, so their sum is optimistic: a group could pass the
+    check here and still overflow once joined, which sent ``chunk_blocks`` down
+    its split-one-block fallback and lost the rest of the group.
+    """
+
     groups: list[list[Block]] = []
     current: list[Block] = []
-    running = 0
     section = ""
 
     for block in blocks:
-        tokens = estimate_tokens(block.text)
-        if current and (block.section != section or running + tokens > max_tokens):
+        overflows = False
+        if current and block.section == section:
+            candidate = "\n".join(item.text for item in (*current, block))
+            overflows = estimate_tokens(candidate) > max_tokens
+        if current and (block.section != section or overflows):
             groups.append(current)
             current = []
-            running = 0
         if not current:
             section = block.section
         current.append(block)
-        running += tokens
 
     if current:
         groups.append(current)
@@ -523,8 +532,13 @@ def chunk_blocks(
         if estimate_tokens(text) <= max_tokens:
             chunks.append(_make_chunk(len(chunks), group, text))
             continue
-        for piece in _split_oversized(group[0], max_tokens):
-            chunks.append(_make_chunk(len(chunks), [group[0]], piece))
+        # A group only reaches this branch when a single block alone is over
+        # the budget. Split every block anyway: splitting group[0] and moving
+        # on silently dropped the rest, turning a prompt-size problem into
+        # missing evidence that no citation could recover.
+        for block in group:
+            for piece in _split_oversized(block, max_tokens):
+                chunks.append(_make_chunk(len(chunks), [block], piece))
     return chunks
 
 
