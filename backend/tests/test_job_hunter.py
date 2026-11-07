@@ -69,6 +69,24 @@ class JobHunterTest(unittest.TestCase):
             dedupe_key(title="AI Intern", company="Example", location="上海"),
         )
 
+    def test_dedupe_key_normalises_city_spelling_and_cohort_noise(self) -> None:
+        self.assertEqual(
+            dedupe_key(
+                title="AI 实习生（2026届）", company="Example", location="北京市"
+            ),
+            dedupe_key(title="AI 实习生", company="Example", location="北京"),
+        )
+        self.assertEqual(
+            dedupe_key(title="AI 实习生", company="Example", location="北京/上海"),
+            dedupe_key(title="AI 实习生", company="Example", location="上海、北京"),
+        )
+        # A bracket that names a direction is not noise: merging two real
+        # openings would lose one of them.
+        self.assertNotEqual(
+            dedupe_key(title="AI 实习生（算法）", company="Example"),
+            dedupe_key(title="AI 实习生（工程）", company="Example"),
+        )
+
     def test_search_ranks_title_hits_above_body_hits(self) -> None:
         title_hit = create_job(self.session, _job("Python 开发实习生"))
         body_hit = create_job(
@@ -241,12 +259,43 @@ class JobHunterTest(unittest.TestCase):
 
         self.assertEqual(result.applied_profile_id, profile.id)
         self.assertEqual([c.job_id for c in result.candidates], [beijing.id])
-        self.assertEqual(
-            [exclusion.job_id for exclusion in result.excluded], [shanghai.id]
-        )
+        # The Shanghai posting is dropped by the SQL prefilter, so it is counted
+        # instead of listed: naming it would mean reading it, which is the scan
+        # the prefilter exists to avoid.
+        self.assertEqual(result.excluded, [])
+        self.assertEqual(result.prefiltered_out, 1)
         self.assertEqual(result.query.role, "算法实习生")
         self.assertEqual(result.query.keywords, ["Python", "PyTorch"])
+        self.assertEqual(result.query.employment_type, "internship")
         self.assertTrue(result.notes)
+
+    def test_default_employment_type_is_not_inherited_as_a_filter(self) -> None:
+        user = create_user(
+            self.session,
+            UserCreate(email="default@example.com", display_name="Default"),
+        )
+        profile = create_profile(
+            self.session,
+            ProfileCreate(
+                user_id=user.id,
+                requirements=UserRequirements(
+                    desired_role="AI 工程师", locations=["北京"]
+                ),
+                capabilities=CapabilityProfile(summary="学生", skills=[]),
+            ),
+        )
+        full_time = create_job(
+            self.session, _job("AI 工程师", employment_type="full_time")
+        )
+
+        result = search_jobs(self.session, JobSearchRequest(profile_id=profile.id))
+
+        # Nobody picked a job type, so there is no type filter. Inheriting the
+        # schema default would hide every full-time posting behind a reason
+        # that looks like the user's own wish.
+        self.assertIsNone(result.query.employment_type)
+        self.assertEqual([c.job_id for c in result.candidates], [full_time.id])
+        self.assertEqual(result.excluded, [])
 
     def test_explicit_query_wins_over_the_profile(self) -> None:
         user = create_user(
@@ -279,6 +328,18 @@ class JobHunterTest(unittest.TestCase):
     def test_searching_for_a_missing_profile_raises_not_found(self) -> None:
         with self.assertRaises(ValueError):
             search_jobs(self.session, JobSearchRequest(profile_id="missing"))
+
+    def test_sql_pushdown_keeps_postings_with_a_missing_city(self) -> None:
+        job = create_job(self.session, _job("Python 开发实习生", location=None))
+
+        result = search_jobs(
+            self.session,
+            JobSearchRequest(query=JobQuery(keywords=["Python"], locations=["北京"])),
+        )
+
+        # Narrowing the scan must not turn "city unknown" into "wrong city".
+        self.assertEqual([c.job_id for c in result.candidates], [job.id])
+        self.assertTrue(result.candidates[0].warnings)
 
 
 if __name__ == "__main__":

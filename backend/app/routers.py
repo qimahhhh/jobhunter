@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from .chunking import blocks_from_docx, blocks_from_pdf
 from .db import get_session
 from .extraction_service import ResumeExtractionService
+from .job_sources import SourceConfigError, SourceUnavailableError
 from .llm import DeepSeekClient, LLMClient, LLMError
 from .orchestrator import JobFitOrchestrator, JobFitRunError
 from .schemas import (
@@ -45,6 +46,8 @@ from .schemas_resources import (
     UserRead,
 )
 from .schemas_search import (
+    JobCollectRequest,
+    JobCollectResponse,
     JobIngestRequest,
     JobIngestResponse,
     JobSearchRequest,
@@ -59,6 +62,7 @@ from .services import (
     ConflictError,
     ConstraintRejectedError,
     NotFoundError,
+    collect_jobs,
     create_job,
     create_job_fit_analysis,
     create_job_match,
@@ -469,6 +473,36 @@ def ingest_job_batch(
     """
 
     return ingest_jobs(session, data)
+
+
+@router.post(
+    "/jobs/collect",
+    response_model=JobCollectResponse,
+    status_code=201,
+    responses={
+        502: {"description": "job source is unavailable"},
+        503: {"description": "job source is not configured"},
+    },
+)
+def collect_job_batch(
+    data: JobCollectRequest, session: Session = Depends(_session)
+) -> JobCollectResponse:
+    """Pull the newest postings from the live source and merge them in.
+
+    Collection is user-triggered: this is the fetching step behind
+    ``/jobs/ingest``, not a background crawler. Failures are named instead of
+    swallowed, because "the search found nothing" and "the source was
+    unreachable" are different answers. The source license forbids bulk
+    storage, so the stored rows carry facts and a link back to the notice,
+    never the notice text itself.
+    """
+
+    try:
+        return collect_jobs(session, data)
+    except SourceConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except SourceUnavailableError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/job-search", response_model=JobSearchResponse)

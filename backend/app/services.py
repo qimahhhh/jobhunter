@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .agents import CareerAnalystAgent
-from .filters import FilterOutcome, hard_filter
+from .filters import (
+    REMOTE_MARKERS,
+    FilterOutcome,
+    hard_filter,
+    location_tokens,
+)
 from .job_hunter import JobHunterAgent, dedupe_key
+from .job_sources import JobSource, OfferCampusSource, notices_to_jobs
 from .models import (
     Job,
     JobFitAnalysis,
@@ -35,6 +42,8 @@ from .schemas_resources import (
     UserRequirements,
 )
 from .schemas_search import (
+    JobCollectRequest,
+    JobCollectResponse,
     JobIngestRequest,
     JobIngestResponse,
     JobQuery,
@@ -112,6 +121,20 @@ def get_user(session: Session, user_id: str) -> User:
     return user
 
 
+def _stored_requirements(requirements: UserRequirements) -> dict[str, Any]:
+    """Store the requirements together with how the job type was decided.
+
+    Pydantic knows which fields the caller actually sent; once serialised to
+    JSON that knowledge is gone. Stamping it at the boundary is what lets a
+    later search tell a confirmed 实习 from a default that nobody picked.
+    """
+
+    payload = requirements.model_dump()
+    if "employment_type" in requirements.model_fields_set:
+        payload["employment_type_source"] = "confirmed"
+    return payload
+
+
 def create_profile(session: Session, data: ProfileCreate) -> UserProfile:
     """Create the user's profile, or update the one they already have.
 
@@ -129,7 +152,7 @@ def create_profile(session: Session, data: ProfileCreate) -> UserProfile:
         profile = UserProfile(
             id=_id(),
             user_id=data.user_id,
-            requirements=data.requirements.model_dump(),
+            requirements=_stored_requirements(data.requirements),
             capabilities=data.capabilities.model_dump(),
             missing_information=list(data.missing_information),
             evidence=list(data.evidence),
@@ -139,7 +162,7 @@ def create_profile(session: Session, data: ProfileCreate) -> UserProfile:
     else:
         # Re-confirming replaces the whole profile: the draft is the source of
         # truth the user just reviewed, not a patch to merge into old fields.
-        profile.requirements = data.requirements.model_dump()
+        profile.requirements = _stored_requirements(data.requirements)
         profile.capabilities = data.capabilities.model_dump()
         profile.missing_information = list(data.missing_information)
         profile.evidence = list(data.evidence)
@@ -239,6 +262,36 @@ def ingest_jobs(session: Session, data: JobIngestRequest) -> JobIngestResponse:
     )
 
 
+def collect_jobs(
+    session: Session,
+    data: JobCollectRequest,
+    source: JobSource | None = None,
+) -> JobCollectResponse:
+    """Pull one batch from a live source and merge it into the stored jobs.
+
+    The collector fetches and normalises; ``ingest_jobs`` keeps the dedupe and
+    the "first source stays as provenance" rule. Collection happens when the
+    user triggers it: this is the fetching step behind ``/jobs/ingest``, not a
+    background crawler. ``source`` is injectable so tests can feed fixtures
+    without touching the network.
+    """
+
+    collector: JobSource = source or OfferCampusSource()
+    items = collector.fetch_recent(limit=data.limit)
+    jobs, warnings = notices_to_jobs(items)
+    result = ingest_jobs(session, JobIngestRequest(jobs=jobs))
+    if jobs:
+        warnings.append("岗位来源未提供薪资字段，薪资下限约束在搜索时按未知处理。")
+    return JobCollectResponse(
+        source=collector.name,
+        fetched=len(items),
+        created=result.created,
+        updated=result.updated,
+        total=result.total,
+        warnings=warnings,
+    )
+
+
 def get_job(session: Session, job_id: str) -> Job:
     job = session.get(Job, job_id)
     if job is None:
@@ -292,7 +345,14 @@ def _query_with_profile_defaults(
         updates["locations"] = list(requirements.locations)
         constrained = True
 
-    if query.employment_type is None:
+    # Only a job type the user actually confirmed becomes a filter. Inheriting
+    # the schema default would answer "you asked for internships" to someone
+    # who never chose one, and every full-time posting would vanish with a
+    # reasonable-looking reason.
+    if (
+        query.employment_type is None
+        and requirements.employment_type_source == "confirmed"
+    ):
         updates["employment_type"] = requirements.employment_type
         constrained = True
 
@@ -302,9 +362,42 @@ def _query_with_profile_defaults(
         constrained = True
 
     if constrained:
-        notes.append("岗位类型、地点与薪资下限沿用了画像中的求职期望")
+        notes.append("地点、薪资下限与已确认的岗位类型沿用了画像中的求职期望")
 
     return query.model_copy(update=updates), notes
+
+
+def _narrow_job_query(session: Session, query: JobQuery):
+    """Narrow the scan in SQL without dropping a row the agent would keep.
+
+    Only conditions that are safe here go into the statement. A posting whose
+    type or city is simply missing must still reach the agent, because the
+    agent reports it as an unknown instead of a rejection; filtering those out
+    in SQL would turn "incomplete data" into "not a match" silently. Keyword
+    matching stays in Python, where the tokenisation lives.
+    """
+
+    statement = session.query(Job)
+
+    if query.employment_type is not None:
+        statement = statement.filter(
+            or_(
+                Job.employment_type == query.employment_type,
+                Job.employment_type.is_(None),
+            )
+        )
+
+    tokens = [
+        token for location in query.locations for token in location_tokens(location)
+    ]
+    if tokens:
+        patterns = [Job.location.ilike(f"%{token}%") for token in tokens]
+        patterns.extend(
+            Job.location.ilike(f"%{marker}%") for marker in REMOTE_MARKERS
+        )
+        statement = statement.filter(or_(Job.location.is_(None), *patterns))
+
+    return statement.order_by(Job.collected_at.desc())
 
 
 def search_jobs(session: Session, data: JobSearchRequest) -> JobSearchResponse:
@@ -317,13 +410,21 @@ def search_jobs(session: Session, data: JobSearchRequest) -> JobSearchResponse:
         query, profile_notes = _query_with_profile_defaults(query, profile)
         notes.extend(profile_notes)
 
-    jobs = session.query(Job).order_by(Job.collected_at.desc()).all()
+    jobs = _narrow_job_query(session, query).all()
+    prefiltered_out = session.query(Job).count() - len(jobs)
+    if prefiltered_out:
+        notes.append(
+            f"SQL 预筛选排除了 {prefiltered_out} 条不满足岗位类型或地点的岗位，"
+            "这部分只给数量、不逐条列出原因。"
+        )
+
     result = JobHunterAgent().run(jobs, query)
     return JobSearchResponse(
         query=result.query,
         candidates=result.candidates,
         excluded=result.excluded,
         total_scanned=result.total_scanned,
+        prefiltered_out=prefiltered_out,
         notes=notes + result.notes,
         applied_profile_id=data.profile_id,
     )

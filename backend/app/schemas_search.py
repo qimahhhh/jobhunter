@@ -61,6 +61,11 @@ class JobSearchResult(BaseModel):
     candidates: list[JobCandidate] = Field(default_factory=list)
     excluded: list[JobExclusion] = Field(default_factory=list)
     total_scanned: int = 0
+    # Postings the SQL prefilter dropped in bulk. They are counted rather than
+    # listed: naming each one would mean reading them, which is the scan the
+    # prefilter exists to avoid. Keeping the number makes the difference between
+    # "not a match" and "never looked at" visible instead of silent.
+    prefiltered_out: int = 0
     notes: list[str] = Field(default_factory=list)
 
 
@@ -88,3 +93,15 @@ class JobIngestResponse(BaseModel):
     created: list[str] = Field(default_factory=list)
     updated: list[str] = Field(default_factory=list)
     total: int = 0
+
+
+class JobCollectRequest(BaseModel):
+    """How much to pull from a live source in one triggered collection."""
+
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class JobCollectResponse(JobIngestResponse):
+    source: str
+    fetched: int = 0
+    warnings: list[str] = Field(default_factory=list)

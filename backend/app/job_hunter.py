@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 
 from .agents import readable_terms, term_set
-from .filters import hard_filter
+from .filters import hard_filter, location_tokens
 from .models import Job
 from .schemas_resources import UserRequirements
 from .schemas_search import (
@@ -17,6 +17,15 @@ from .schemas_search import (
 
 
 _FOLD_RE = re.compile(r"[\s\-_/·|、，,：:（）()\[\]【】]+")
+
+# Bracketed text that carries no identity: cohort years, urgency banners. A
+# bracket holding something else (（算法）vs（工程）) is a real difference and
+# stays in the key, because merging two real postings loses one of them.
+_TITLE_NOISE_RE = re.compile(
+    r"[（(【\[]\s*(?:\d{2,4}\s*届|\d{2,4}\s*[-–—~至]\s*\d{2,4}\s*年?"
+    r"|急招|急聘|热招|长期有效|长期招聘)\s*[）)】\]]"
+)
+_LOCATION_SUFFIXES = ("市",)
 _DISPLAY_LIMIT = 5
 
 
@@ -26,16 +35,37 @@ def _fold(value: str) -> str:
     return _FOLD_RE.sub("", value).strip().lower()
 
 
+def _fold_location(value: str) -> str:
+    """City names in a form that survives the usual spelling differences.
+
+    Reuses the same splitting as the hard filter, so "北京市" and "北京", or
+    "北京/上海" and "上海、北京", describe one posting instead of two. Order is
+    dropped because it is a presentation choice, not part of the job.
+    """
+
+    tokens: list[str] = []
+    for token in location_tokens(value):
+        for suffix in _LOCATION_SUFFIXES:
+            if token.endswith(suffix) and len(token) > len(suffix):
+                token = token[: -len(suffix)]
+        tokens.append(token)
+    return ".".join(sorted(set(tokens)))
+
+
 def dedupe_key(*, title: str, company: str, location: str | None = None) -> str:
     """Identity of a posting, stable across platforms and re-posts.
 
-    The location is part of the key because the same title at the same company
-    in two cities is two postings, not one duplicate. The key is deliberately
-    exact: it folds cosmetic differences only, and leaves fuzzy "is this the
-    same job" matching to a human review instead of guessing.
+    The key folds cosmetic noise only: case, spacing, punctuation, cohort years
+    and urgency banners in the title, and city spelling. Anything that could be
+    a different opening is kept apart, so a false split stays visible while a
+    false merge would silently lose a job.
     """
 
-    parts = (_fold(company), _fold(title), _fold(location or ""))
+    parts = (
+        _fold(company),
+        _fold(_TITLE_NOISE_RE.sub("", title)),
+        _fold_location(location or ""),
+    )
     return "|".join(part for part in parts if part)
 
 

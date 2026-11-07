@@ -38,16 +38,21 @@ python -m venv .venv
 | `POST /api/v1/resumes/draft` | 用已存画像（外加画像关联的原简历 chunks）生成**基础简历**草稿，不涉及 JD；每条要点带 `sources` 引用，找不到原文依据的要点会被删除，数字对不上原文会进 `notes`。 |
 | `POST /api/v1/jobs`、`GET /api/v1/jobs`、`GET /api/v1/jobs/{job_id}` | 创建和查询岗位；列表支持 `employment_type` 筛选。手动录入不去重：同一公司同名岗位可以是两个真实岗位。 |
 | `POST /api/v1/jobs/ingest` | 采集器批量写入岗位，按 `公司 + 岗位名 + 城市` 去重：重复出现的岗位视为同一条，刷新薪资/地点/描述这些会变的字段并把 `last_seen_at` 更新为当前时间，首次来源保留为溯源。返回 `created` / `updated` 的 id 列表。 |
-| `POST /api/v1/job-search` | Job Hunter Agent：在已入库岗位中检索并排序，返回 `candidates`（score、命中/缺失关键词、理由）和 `excluded`（被过滤的岗位及原因）。传 `profile_id` 时用画像的目标岗位、技能、城市、岗位类型、薪资下限补全查询；显式传入的字段优先。 |
+| `POST /api/v1/jobs/collect` | 从 Offer先生校招数据开放平台拉取最新公告并入库：归一化后走 `/jobs/ingest` 同一条幂等合并路径，返回 `source` / `fetched` / `created` / `updated` 和跳过原因。未配置 API Key 返回 `503`，来源不可用返回 `502`。 |
+| `POST /api/v1/job-search` | Job Hunter Agent：在已入库岗位中检索并排序，返回 `candidates`（score、命中/缺失关键词、理由）和 `excluded`（被过滤的岗位及原因）。传 `profile_id` 时用画像的目标岗位、技能、城市、薪资下限补全查询，岗位类型**仅在画像里显式确认过**时才作为过滤条件；显式传入的字段优先。 |
 | `POST /api/v1/job-matches`、`GET /api/v1/job-matches/{match_id}` | 创建和查询匹配结果；创建前会按岗位类型、地点、薪资等硬约束过滤。 |
 
 资源接口对不存在的 ID 返回 `404`；岗位不满足硬约束时，`POST /api/v1/job-matches` 返回 `422`，其中包含 `rejections` 和 `unknowns`。上传抽取接口对不支持的文件类型返回 `415`、空文件返回 `400`、超过 20MB 返回 `413`、模型未配置返回 `503`。
 
 **画像的可追溯链**：抽取接口带 `user_id` → 返回 `resume_id`（`GET /api/v1/resumes/{resume_id}` 的 `content.chunks` 里是当时切好的每一段）→ 确认时把 `resume_id` 和 `evidence`（chunk id 列表）一起写进画像。这样 `GET /profiles/{id}` 配合 `GET /resumes/{resume_id}`，就能把一条结论还原成简历原文的某一段；不带 `user_id` 则保持无状态草稿，什么都不写。
 
-**岗位召回**：`backend/app/job_hunter.py` 里的 `JobHunterAgent` 只做两件事——按查询里明确给出的硬约束过滤（没给的条件不启用，不会因为“没填薪资”而把岗位筛掉），再按关键词重合度排序。岗位名称命中计双份；“查不到”和“没测量”分开表达：查询没有关键词时 score 记为 0.0 并在 `notes` 里说明，而不是假装不匹配。被筛掉的岗位全部进 `excluded` 并带原因，替代巡检器时可以只看这份日志。
+**岗位召回**：`backend/app/job_hunter.py` 里的 `JobHunterAgent` 只做两件事——按查询里明确给出的硬约束过滤（没给的条件不启用，不会因为“没填薪资”而把岗位筛掉），再按关键词重合度排序。岗位名称命中计双份；“查不到”和“没测量”分开表达：查询没有关键词时 score 记为 0.0 并在 `notes` 里说明，而不是假装不匹配。Agent 筛掉的岗位全部进 `excluded` 并带原因。
 
-**岗位去重**：`dedupe_key` 只抹平大小写、空格和标点（`AI  Intern` 与 `ai-intern` 算同一条），不做模糊匹配；城市参与 key，因为“同城同名”才是重复。它只用于 `/jobs/ingest` 这条采集路径，手动创建仍然一行一条。
+`services._narrow_job_query` 会把岗位类型、城市这类安全条件先下推到 SQL，但会同时放行 `NULL` 行：字段缺失的岗位交给 Agent 报成 unknown，而不是在 SQL 层被静默当成不匹配。代价是被 SQL 批量砍掉的岗位无法逐条给理由（要命名它们就得把它们读出来，也就失去下推的意义），所以用 `prefiltered_out` 只报数量，并在 `notes` 里说明。薪资需要跨周期换算，仍留在 Python 里比。
+
+**岗位去重**：`dedupe_key` 抹平大小写、空格、标点，以及城市写法（`北京市` = `北京`，`北京/上海` = `上海、北京`）和标题里的届别/急招类括号噪音（`AI 实习生（2026届）` = `AI 实习生`）。括号里是方向时不抹（`（算法）` ≠ `（工程）`）：误合并会丢一个真实岗位，误拆分至少看得见。它只用于 `/jobs/ingest` 这条采集路径，手动创建仍然一行一条。
+
+**岗位采集（Offer先生开放平台）**：`backend/app/job_sources.py` 里 `OfferCampusSource` 负责抓取，`notices_to_jobs` 负责归一化。一条公告覆盖多个岗位，按 `content` 的岗位名拆成多条岗位记录（没有岗位名就退化为公告级一条）；公告标签带「实习」的记 `internship`，其余记 `full_time`。来源 license 限定「仅限个人学习与研究，禁止批量落盘或再分发」，因此**公告正文（`richText`）永不入库**：只落企业、岗位、城市、学历、毕业年份这类事实字段和 `announcementUrl` 回链，正文需要时按链接回看原文。凭据配置 `OFFER_CAMPUS_API_KEY`（`.env`，模板见 `.env.example`），`OFFER_CAMPUS_API_BASE` 可覆盖默认地址。HTTP 客户端统一用 `httpx`：部分 Windows 主机的系统 TLS 栈不可用，系统 curl 走不通。采集由用户触发，不做定时爬取。
 
 ## 测试
 
@@ -74,7 +79,7 @@ API 侧的 `POST /api/v1/profiles/extract/file` 接收同样的 PDF/DOCX 简历�
 
 ## 后续计划
 
-1. 接入真实岗位来源和来源验证。
+1. 岗位来源核验（真实来源已接入：Offer先生开放平台，见 `POST /api/v1/jobs/collect`）。
 2. 将模拟代理替换为 MiMo 客户端。
 3. 持久化来源快照和失败信息。
 4. 添加 React 工作台界面。

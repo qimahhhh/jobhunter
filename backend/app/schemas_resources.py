@@ -37,6 +37,11 @@ class UserRequirements(BaseModel):
     desired_role: str = Field(min_length=1)
     locations: list[str] = Field(default_factory=list)
     employment_type: EmploymentType = "internship"
+    # ``employment_type`` has a default, so the value alone cannot say whether
+    # the user chose 实习 or never touched the field. A search that inherits a
+    # default turns it into a filter nobody asked for, so the provenance is
+    # stored next to the value: only "confirmed" is inherited.
+    employment_type_source: Literal["default", "confirmed"] = "default"
     salary_min: int | None = None
     salary_max: int | None = None
     salary_period: SalaryPeriod = "month"
