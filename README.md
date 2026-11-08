@@ -35,7 +35,7 @@ python -m venv .venv
 | `POST /api/v1/profiles/extract/bundle` | 一次提交多来源：`resume_text`、`self_description`、`projects`（JSON，对象或数组）至少一项，合并后统一切块抽取；引用表头保留 `source` 标签，可选 `user_id` 同上。 |
 | `POST /api/v1/profiles/extract/confirm` | 用户校对、修改抽取草稿后提交确认（人工确认节点），写入用户画像（重复确认更新同一份画像）；`recommended_roles` 存为 `suggested_roles`，用户保留或修改后的方向存为 `target_roles`，未修改时 `target_roles_source` 标为 `suggested`；草稿的 `missing_information` 一并落库；可带 `resume_id` 与 `evidence`，写入画像的 `source_resume_id` / `evidence`；用户不存在返回 `404`。 |
 | `POST /api/v1/resumes`、`GET /api/v1/resumes/{resume_id}` | 保存和查询来源类型及内容结构化的简历记录。 |
-| `POST /api/v1/resumes/draft` | 用已存画像（外加画像关联的原简历 chunks）生成**基础简历**草稿，不涉及 JD；每条要点带 `sources` 引用，找不到原文依据的要点会被删除，数字对不上原文会进 `notes`。 |
+| `POST /api/v1/resumes/draft` | 用已存画像（外加画像关联的原简历 chunks）生成**基础简历**草稿，不涉及 JD；每条要点带 `sources` 引用，找不到原文依据的要点会被删除，数字对不上原文会进 `notes`。草稿会作为该画像的一个新版本落库，返回 `resume_id` 与 `version`。 |
 | `POST /api/v1/jobs`、`GET /api/v1/jobs`、`GET /api/v1/jobs/{job_id}` | 创建和查询岗位；列表支持 `employment_type`、`verification_status` 筛选。手动录入不去重：同一公司同名岗位可以是两个真实岗位。 |
 | `POST /api/v1/jobs/verify` | 批量记录人工核验结论（`active` / `expired` / `source_unavailable` / `pending_verification`）。只有人工给出结论时才会写 `last_verified_at`，改回 `pending_verification` 会同时清掉这个时间；整批一次提交，不存在的 id 进 `rejected` 而不影响其余。 |
 | `POST /api/v1/jobs/probe` | 探活来源链接：`404`/`410` 或页面出现「已截止」等标记 → 置 `expired`；页面能打开 → 只刷新 `last_checked_at`，**不**改状态；请求失败 → 在非人工确认过的岗位上置 `source_unavailable`。默认只检查 `pending_verification`，支持 `status` / `limit` / `timeout_seconds`。 |
@@ -49,6 +49,8 @@ python -m venv .venv
 资源接口对不存在的 ID 返回 `404`；岗位不满足硬约束时，`POST /api/v1/job-matches` 返回 `422`，其中包含 `rejections` 和 `unknowns`。上传抽取接口对不支持的文件类型返回 `415`、空文件返回 `400`、超过 20MB 返回 `413`、模型未配置返回 `503`。
 
 **画像的可追溯链**：抽取接口带 `user_id` → 返回 `resume_id`（`GET /api/v1/resumes/{resume_id}` 的 `content.chunks` 里是当时切好的每一段）→ 确认时把 `resume_id` 和 `evidence`（chunk id 列表）一起写进画像。这样 `GET /profiles/{id}` 配合 `GET /resumes/{resume_id}`，就能把一条结论还原成简历原文的某一段；不带 `user_id` 则保持无状态草稿，什么都不写。
+
+**基础简历是一个版本，不是一次响应**：`POST /resumes/draft` 会把草稿写成一条 `source_type="draft"` 的简历记录，`version` 按画像递增（同一用户的两个画像各自一条版本线），内容里每条要点带一个位置型 `bullet_id`（`e1-b2`）。这么做是因为定制版简历只能是**对某个已存版本打的补丁**：补丁说“改写 e1-b2”，就得有一个 e1-b2 能在之后的请求里指得到，所以基础版必须比它的响应活得久，后一次生成也不能覆盖前一次。引用的原文（`cited_chunks`）一并存进这条记录——画像可能来自结构化档案、根本没有原简历记录，那时这段文字就是校验改写后数字的唯一依据。校验没过（`degraded`）的草稿不落库：它是错误报告，给它一个版本号会让后面的补丁指向一个空简历。`/job-hunt` 里的同名步骤默认不落库，因为一次搜索不该在版本历史里留下一行没人打开过的简历。
 
 **岗位召回**：`backend/app/job_hunter.py` 里的 `JobHunterAgent` 只做两件事——按查询里明确给出的硬约束过滤（没给的条件不启用，不会因为“没填薪资”而把岗位筛掉），再按关键词重合度排序。岗位名称命中计双份；“查不到”和“没测量”分开表达：查询没有关键词时 score 记为 0.0 并在 `notes` 里说明，而不是假装不匹配。Agent 筛掉的岗位全部进 `excluded` 并带原因。
 

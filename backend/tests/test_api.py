@@ -585,6 +585,94 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 404)
         client.assert_not_called()
 
+    async def _draftable_profile(self, email: str) -> str:
+        profile = await _request(
+            "POST",
+            "/api/v1/profiles",
+            {
+                "user_id": await self._create_user(email),
+                "requirements": {"desired_role": "AI 应用开发实习"},
+                "capabilities": {
+                    "summary": "计算机专业本科在读。",
+                    "skills": ["Python"],
+                    "experiences": ["字节跳动 后端开发实习：负责推荐接口优化，QPS 提升 40%"],
+                },
+            },
+        )
+        self.assertEqual(profile.status, 201)
+        return profile.json()["id"]
+
+    async def test_base_draft_is_stored_as_a_version_with_bullet_ids(self) -> None:
+        profile_id = await self._draftable_profile("versions@example.com")
+        # Profile blocks are one section each, so the experience is the third
+        # chunk and ``c003`` is a citation that resolves.
+        reply = {
+            "headline": "计算机专业本科在读 · 后端开发",
+            "summary": "计算机专业本科在读。",
+            "experiences": [
+                {
+                    "heading": "字节跳动 | 后端开发实习",
+                    "bullets": [
+                        {"text": "负责推荐接口优化，QPS 提升 40%", "sources": ["c003"]}
+                    ],
+                }
+            ],
+            "skills": ["Python"],
+            "education": [],
+            "suggestions": [],
+        }
+        client = _FakeClient([reply, reply])
+
+        with mock.patch("backend.app.routers._client", return_value=client):
+            first = await _request(
+                "POST", "/api/v1/resumes/draft", {"profile_id": profile_id}
+            )
+            second = await _request(
+                "POST", "/api/v1/resumes/draft", {"profile_id": profile_id}
+            )
+
+        self.assertEqual(first.status, 200)
+        self.assertEqual(first.json()["version"], 1)
+        self.assertEqual(second.json()["version"], 2)
+        # A second draft is a new version, not an overwrite: the base the first
+        # tailored copy would cite still has to exist.
+        self.assertNotEqual(first.json()["resume_id"], second.json()["resume_id"])
+
+        stored = await _request(
+            "GET", f"/api/v1/resumes/{first.json()['resume_id']}"
+        )
+        self.assertEqual(stored.status, 200)
+        record = stored.json()
+        self.assertEqual(record["source_type"], "draft")
+        self.assertEqual(record["version"], 1)
+
+        content = record["content"]
+        self.assertEqual(content["profile_id"], profile_id)
+        bullet = content["experiences"][0]["bullets"][0]
+        self.assertEqual(bullet["bullet_id"], "e1-b1")
+        self.assertEqual(bullet["sources"], ["c003"])
+        # The cited text is copied in, so a rewrite can be checked against it
+        # once the response is gone.
+        self.assertEqual(
+            [chunk["id"] for chunk in content["cited_chunks"]], ["c003"]
+        )
+
+    async def test_a_failed_draft_is_not_stored_as_a_version(self) -> None:
+        profile_id = await self._draftable_profile("degraded@example.com")
+        client = _FakeClient([{"headline": ["wrong"]}, {"headline": ["wrong"]}])
+
+        with mock.patch("backend.app.routers._client", return_value=client):
+            response = await _request(
+                "POST", "/api/v1/resumes/draft", {"profile_id": profile_id}
+            )
+
+        body = response.json()
+        self.assertEqual(response.status, 200)
+        self.assertTrue(body["degraded"])
+        # An error report is not a revision: no id, no version, nothing to cite.
+        self.assertIsNone(body["resume_id"])
+        self.assertEqual(body["version"], 0)
+
 
 async def _upload(
     path: str,

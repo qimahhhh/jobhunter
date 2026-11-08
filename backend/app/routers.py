@@ -412,11 +412,20 @@ def draft_base_resume(
     the chunks saved when it was extracted, so a rewritten bullet can still be
     traced back to the paragraph it came from. Tailoring to a posting is a
     separate step that adds a job to the same pipeline.
+
+    The draft is stored as a new version of this profile's resume and comes back
+    with ``resume_id`` and ``version``. A tailored copy patches one stored
+    version, so the base has to outlive the response; a draft that failed its
+    checks is returned unstored, with ``resume_id`` left None.
     """
 
     profile = _or_404(lambda: get_profile(session, data.profile_id))
     return draft_resume_for_profile(
-        session, profile, _llm_or_503(), data.max_chunk_tokens
+        session,
+        profile,
+        _llm_or_503(),
+        data.max_chunk_tokens,
+        persist=True,
     )
 
 

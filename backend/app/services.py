@@ -95,6 +95,12 @@ def _id() -> str:
     return uuid.uuid4().hex
 
 
+# ``Resume.source_type`` of a base draft written by the model. A tailored
+# resume is a patch against one stored base, so the row has to outlive the
+# response it arrived in.
+BASE_DRAFT_SOURCE = "draft"
+
+
 def _job_input_to_job(data: JobInput, *, id: str) -> Job:
     return Job(
         id=id,
@@ -219,11 +225,96 @@ def get_resume(session: Session, resume_id: str) -> Resume:
     return resume
 
 
+def base_resume_content(
+    response: ResumeDraftResponse, *, profile_id: str
+) -> dict[str, Any]:
+    """The stored shape of a base draft, with one id per bullet.
+
+    The response reads fine without ids; a tailored version cannot work without
+    them, because a patch says "rewrite e2-b1" and there has to be an e2-b1 to
+    point at. Ids are positional rather than hashed: a patch is generated
+    against one stored version, so an id only has to be stable inside that
+    version, and a person reading a diff can count their way to e2-b1.
+
+    ``cited_chunks`` travels with the resume on purpose. The chunks themselves
+    live in the extraction record, but a profile can be built from a structured
+    dump that has no source resume at all, and then the cited text is the only
+    thing left to check a rewritten number against.
+    """
+
+    return {
+        "profile_id": profile_id,
+        "headline": response.headline,
+        "summary": response.summary,
+        "experiences": [
+            {
+                "heading": experience.heading,
+                "bullets": [
+                    {
+                        "bullet_id": f"e{index}-b{position}",
+                        "text": bullet.text,
+                        "sources": list(bullet.sources),
+                    }
+                    for position, bullet in enumerate(experience.bullets, start=1)
+                ],
+            }
+            for index, experience in enumerate(response.experiences, start=1)
+        ],
+        "skills": list(response.skills),
+        "education": list(response.education),
+        "suggestions": list(response.suggestions),
+        "cited_chunks": [chunk.model_dump() for chunk in response.cited_chunks],
+        "notes": list(response.notes),
+    }
+
+
+def save_base_resume(
+    session: Session, profile: UserProfile, response: ResumeDraftResponse
+) -> Resume:
+    """Store a base draft as the next version of this profile's resume.
+
+    Every draft becomes a new row instead of overwriting the previous one: a
+    tailored resume patches one specific base, so the base a patch cites has to
+    survive the next draft replacing it.
+
+    Versions are counted per profile, not per user. One user applying in two
+    directions has two profiles, and a version number that jumped because the
+    other direction was drafted would say nothing about either history.
+
+    The lookup filters ``source_type`` in SQL and ``profile_id`` in Python: a
+    JSON key comparison is spelled differently on SQLite and PostgreSQL, and one
+    profile's draft history is short enough that scanning it costs nothing.
+    """
+
+    history = [
+        record
+        for record in session.query(Resume).filter(
+            Resume.source_type == BASE_DRAFT_SOURCE
+        )
+        if (record.content or {}).get("profile_id") == profile.id
+    ]
+    version = max((record.version for record in history), default=0) + 1
+    record = Resume(
+        id=_id(),
+        user_id=profile.user_id,
+        source_type=BASE_DRAFT_SOURCE,
+        source_name=f"基础简历草稿 v{version}",
+        version=version,
+        content=base_resume_content(response, profile_id=profile.id),
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return record
+
+
 def draft_resume_for_profile(
     session: Session,
     profile: UserProfile,
     client: LLMClient,
     max_chunk_tokens: int = DEFAULT_MAX_CHUNK_TOKENS,
+    *,
+    persist: bool = False,
 ) -> ResumeDraftResponse:
     """Draft a base resume from a stored profile and its source chunks.
 
@@ -232,6 +323,14 @@ def draft_resume_for_profile(
     different resumes depending on which route was called. The caller resolves
     the profile first so a missing id is still a 404 and never costs a model
     call.
+
+    ``persist`` stores the draft as the next version and returns its id. The
+    hunt pipeline leaves it off: a resume the user never opened should not fill
+    the history with one row per search.
+
+    A draft that failed its checks is never stored. It is an error report with
+    empty content, and a version number would let a later patch cite a base that
+    has nothing in it.
     """
 
     blocks = blocks_from_profile(profile.capabilities or {})
@@ -243,7 +342,7 @@ def draft_resume_for_profile(
 
     result = draft_resume(blocks, client, max_chunk_tokens=max_chunk_tokens)
     content = result.content or ResumeDraftContent()
-    return ResumeDraftResponse(
+    response = ResumeDraftResponse(
         profile_id=profile.id,
         headline=content.headline,
         summary=content.summary,
@@ -265,6 +364,13 @@ def draft_resume_for_profile(
         unverified_fields=result.unverified_fields,
         degraded=result.degraded,
         notes=result.notes,
+    )
+    if not (persist and not result.degraded):
+        return response
+
+    record = save_base_resume(session, profile, response)
+    return response.model_copy(
+        update={"resume_id": record.id, "version": record.version}
     )
 
 

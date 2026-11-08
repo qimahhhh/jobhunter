@@ -117,6 +117,11 @@ class CitedChunk(BaseModel):
 
 class ResumeDraftResponse(BaseModel):
     profile_id: str
+    # Set only when the draft was stored as a version. ``version`` stays 0 and
+    # ``resume_id`` stays None when nothing was written, so "no row" can never
+    # be read as "version zero of something".
+    resume_id: str | None = None
+    version: int = 0
     headline: str
     summary: str
     experiences: list[ResumeExperience]
