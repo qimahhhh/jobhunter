@@ -54,6 +54,13 @@ python -m venv .venv
 | `POST /api/v1/job-search` | Job Hunter Agent：在已入库岗位中检索并排序，返回 `candidates`（score、命中/缺失关键词、理由）和 `excluded`（被过滤的岗位及原因）。传 `profile_id` 时用画像的目标岗位、技能、城市、薪资下限补全查询，岗位类型**仅在画像里显式确认过**时才作为过滤条件；显式传入的字段优先。`query.expand=true` 时额外调用一次模型做查询扩展。 |
 | `POST /api/v1/job-hunt` | 一条请求跑完「检索 → 匹配 → 可选简历草稿」：`search` 是 `/job-search` 的结果，`matches` 是对候选前 `match_top` 条（默认 3）逐个生成的**已落库**匹配结果，`skipped` 记下“过了检索但没过画像硬约束”的候选及原因，`with_resume` 为真时再调 `/resumes/draft` 同一套逻辑。`run_log` 给每个阶段耗时，`profile_id` 不存在返回 `404`。 |
 | `POST /api/v1/job-matches`、`GET /api/v1/job-matches/{match_id}` | 创建和查询匹配结果；创建前会按岗位类型、地点、薪资等硬约束过滤。结果带 `breakdown`（逐条需求的权重、覆盖率、命中术语）与 `score_source`（`extracted` / `heuristic`），`must_gaps` / `must_coverage` 单独报告 must 缺口，不参与总分。 |
+| `POST /api/v1/interviews` | 用画像 + 岗位需求集开一场模拟面试；需求集复制进 session，模型只在代码给定的题目框架内选择问题，`max_turns` 默认 8。 |
+| `POST /api/v1/interviews/{id}/answers`、`GET /api/v1/interviews/{id}` | 提交当前这一题的答案（会话里只保留一道未答的题），并读取 session / 剩余题目。 |
+| `POST /api/v1/interviews/{id}/evaluation` | 对已结束的面试按需求逐条复盘：哪些被回答、哪些只擦到边、哪些没答。 |
+| `GET /api/v1/products` | 价格目录：套餐 code、价格（分）、币种、权益与功能列表。 |
+| `POST /api/v1/orders`、`GET /api/v1/orders/{order_id}` | 下单与查询；金额由服务端按目录计算，客户端不能传价格；支持 `idempotency_key` 防止重复下单。 |
+| `POST /api/v1/orders/{order_id}/payment` | 模拟支付（单值 provider），成功后订单转 `paid`。 |
+| `POST /api/v1/orders/{order_id}/deliveries`、`GET /api/v1/users/{user_id}/orders` | 记录交付（报告/简历等权益）与查询用户订单历史。 |
 
 ## 可追溯链
 
@@ -86,6 +93,14 @@ python -m venv .venv
 .\.venv\Scripts\python scripts\job_data.py verify --ids <前缀> --status active
 .\.venv\Scripts\python scripts\job_data.py expire --days 14      # 长期没有证据的岗位标过期
 ```
+
+## 面试复盘
+
+`interview_agent.py` 把「问什么」交给模型、把「能不能问」留给代码：模型只能在需求集划定的范围内选题目，session 里始终只保留一道未回答的题，客户端不能回传一道自己编的题。结束后 `evaluation` 按需求逐条给 `answered` / `surface` / `unanswered`，而不是只给一个总分。
+
+## 计费
+
+`billing.py` 的价格来自服务端目录：`OrderCreate` 没有金额字段，金额由目录计算并落库，后续改价不会改写已下单的金额。支付是模拟通道；交付（deliveries）单独记录，订单、支付、交付三步分开，便于以后替换真实支付回调。
 
 ## 测试
 

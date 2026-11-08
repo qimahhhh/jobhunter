@@ -6,11 +6,23 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from .billing import (
+    BillingError,
+    DeliveryNotAllowedError,
+    OrderNotFoundError,
+    PaymentNotAllowedError,
+    add_delivery,
+    create_order,
+    get_order,
+    list_products,
+    mark_paid,
+    order_history,
+)
 from .chunking import blocks_from_docx, blocks_from_pdf
 from .db import get_session
 from .extraction_service import ResumeExtractionService
@@ -28,6 +40,16 @@ from .schemas import (
     ResumeExtractionRequest,
     ResumeExtractionResponse,
     ResumeSourceBundleRequest,
+)
+from .schemas_billing import (
+    DeliveryCreate,
+    DeliveryRead,
+    OrderCreate,
+    OrderHistory,
+    OrderRead,
+    PaymentRequest,
+    ProductRead,
+    QuotaLine,
 )
 from .schemas_hunt import JobHuntRequest, JobHuntResponse
 from .schemas_resources import (
@@ -59,10 +81,20 @@ from .schemas_search import (
     JobSearchRequest,
     JobSearchResponse,
 )
+from .schemas_interview import (
+    InterviewAnswerRequest,
+    InterviewEvaluation,
+    InterviewSessionRead,
+    InterviewStartRequest,
+)
 from .services import (
     ConflictError,
     ConstraintRejectedError,
+    InterviewFinishedError,
+    InterviewNotFinishedError,
+    InterviewNotPossibleError,
     NotFoundError,
+    answer_interview,
     collect_jobs,
     create_job,
     create_job_fit_analysis,
@@ -71,6 +103,7 @@ from .services import (
     create_resume,
     create_user,
     draft_resume_for_profile,
+    evaluate_interview,
     expire_stale_jobs,
     get_job,
     get_job_fit_analysis,
@@ -82,7 +115,9 @@ from .services import (
     list_job_fit_analyses,
     list_jobs,
     probe_jobs,
+    read_interview,
     search_jobs,
+    start_interview_session,
     verify_jobs,
 )
 
@@ -624,6 +659,270 @@ def add_job_match(data: JobMatchCreate, session: Session = Depends(_session)) ->
 @router.get("/job-matches/{match_id}", response_model=JobMatchRead)
 def read_job_match(match_id: str, session: Session = Depends(_session)) -> JobMatchRead:
     return JobMatchRead.model_validate(_or_404(lambda: get_job_match(session, match_id)))
+
+
+@router.post(
+    "/interviews",
+    response_model=InterviewSessionRead,
+    status_code=201,
+    responses={
+        404: {"description": "the profile or the job does not exist"},
+        422: {"description": "the posting has nothing to interview against"},
+        503: {"description": "model client is not configured"},
+    },
+)
+def start_interview(
+    data: InterviewStartRequest, session: Session = Depends(_session)
+) -> InterviewSessionRead:
+    """Plan a mock interview and return its first question.
+
+    The model plans which requirements to verify, but the plan is stored before
+    any answer exists: it is what later turns are allowed to deviate from, and a
+    session that never recorded its intention could not explain why it asked
+    what it asked.
+
+    A model client is required here, unlike matching: the next question depends
+    on what the candidate just said, which no deterministic rule can read.
+    """
+
+    try:
+        return start_interview_session(session, data, _llm_or_503())
+    except InterviewNotPossibleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/interviews/{interview_id}/answers",
+    response_model=InterviewSessionRead,
+    responses={
+        404: {"description": "the session does not exist"},
+        409: {"description": "the session is over, or has no question to answer"},
+    },
+)
+def answer_interview_question(
+    interview_id: str,
+    data: InterviewAnswerRequest,
+    session: Session = Depends(_session),
+) -> InterviewSessionRead:
+    """Record one answer and return the next question, or the ending.
+
+    The answer belongs to the question currently on screen — the session stores
+    the unanswered turn, so a caller cannot answer something they were never
+    asked by inventing a question id.
+
+    The turn budget and the one-follow-up-per-requirement limit are enforced in
+    code, not asked of the model: a model that cannot satisfy itself would keep
+    probing until the candidate gave up.
+    """
+
+    try:
+        return answer_interview(session, interview_id, data, _llm_or_503())
+    except InterviewFinishedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/interviews/{interview_id}", response_model=InterviewSessionRead)
+def read_interview_session(
+    interview_id: str, session: Session = Depends(_session)
+) -> InterviewSessionRead:
+    """Replay a session: the plan, every turn, and what is still uncovered."""
+
+    return _or_404(lambda: read_interview(session, interview_id))
+
+
+@router.post(
+    "/interviews/{interview_id}/evaluation",
+    response_model=InterviewEvaluation,
+    responses={
+        404: {"description": "the session does not exist"},
+        409: {"description": "the interview has not finished yet"},
+        502: {"description": "the review could not be produced"},
+    },
+)
+def evaluate_interview_session(
+    interview_id: str,
+    refresh: bool = Query(default=False),
+    session: Session = Depends(_session),
+) -> InterviewEvaluation:
+    """Review a finished interview: per requirement, then what to do next.
+
+    Three verdicts instead of a score — a conversation has no number anyone can
+    recompute, and a judgement a reader can check against the quoted answer is
+    worth more than one they have to trust.
+
+    Stored on the session, so asking twice returns the same review instead of
+    buying a second opinion; ``refresh=true`` is how a caller asks for one on
+    purpose.
+
+    A review that cannot be produced is a ``502``, not an empty review: "nothing
+    to report" would read exactly like a review that found nothing wrong.
+    """
+
+    try:
+        return evaluate_interview(session, interview_id, _llm_or_503(), refresh=refresh)
+    except InterviewNotFinishedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=f"评估失败：{exc}") from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/products", response_model=list[ProductRead])
+def read_products(session: Session = Depends(_session)) -> list[ProductRead]:
+    """The price list, as rows rather than constants in the page.
+
+    The catalog is filled on first read and never overwritten: a price someone
+    changed by hand is the price, and redeploying is not a reason to revert it.
+    """
+
+    return [
+        ProductRead.model_validate(product) for product in list_products(session)
+    ]
+
+
+@router.post(
+    "/orders",
+    response_model=OrderRead,
+    status_code=201,
+    responses={
+        200: {"description": "idempotency key already used; this is that order"},
+        404: {"description": "the user or the product does not exist"},
+    },
+)
+def create_checkout_order(
+    data: OrderCreate,
+    response: Response,
+    session: Session = Depends(_session),
+) -> OrderRead:
+    """Create an order at the catalog price.
+
+    A replayed request (same ``idempotency_key``) answers ``200`` with the
+    order it already made, not a second one: a checkout page that retries after
+    a timeout must not bill the user twice.
+    """
+
+    try:
+        user = get_user(session, data.user_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        order, created = create_order(
+            session,
+            user_id=user.id,
+            product_code=data.product_code,
+            quantity=data.quantity,
+            idempotency_key=data.idempotency_key,
+        )
+    except BillingError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if not created:
+        response.status_code = 200
+    return OrderRead.model_validate(order)
+
+
+@router.get("/orders/{order_id}", response_model=OrderRead)
+def read_order(
+    order_id: str, session: Session = Depends(_session)
+) -> OrderRead:
+    """What the cashier page polls while it waits for a payment."""
+
+    try:
+        return OrderRead.model_validate(get_order(session, order_id))
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/orders/{order_id}/payment",
+    response_model=OrderRead,
+    responses={
+        404: {"description": "the order does not exist"},
+        409: {"description": "the order is not in a payable state"},
+    },
+)
+def pay_order(
+    order_id: str,
+    data: PaymentRequest,
+    session: Session = Depends(_session),
+) -> OrderRead:
+    """Settle a simulated payment.
+
+    The body can only say ``simulated``, and the stored provider says the same:
+    a demo payment is recorded as one, so nothing later has to guess whether
+    money actually moved. Paying twice changes nothing — callbacks are retried
+    by every provider in the world.
+    """
+
+    try:
+        return OrderRead.model_validate(mark_paid(session, order_id))
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PaymentNotAllowedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/orders/{order_id}/deliveries",
+    response_model=DeliveryRead,
+    status_code=201,
+    responses={
+        404: {"description": "the order does not exist"},
+        409: {"description": "unpaid, wrong owner, or no credit left"},
+    },
+)
+def deliver_order(
+    order_id: str,
+    data: DeliveryCreate,
+    session: Session = Depends(_session),
+) -> DeliveryRead:
+    """Record what the buyer got for a paid order.
+
+    This is the end of the chain: an interview session or a resume exists, and
+    this row is what connects it back to the order that paid for it. The kind
+    comes from the product, and the artifact must belong to the buyer, so a
+    delivery cannot be pointed at someone else's work.
+    """
+
+    try:
+        return DeliveryRead.model_validate(
+            add_delivery(session, order_id, data.ref_id)
+        )
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DeliveryNotAllowedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/users/{user_id}/orders", response_model=OrderHistory)
+def read_order_history(
+    user_id: str, session: Session = Depends(_session)
+) -> OrderHistory:
+    """The transaction ledger, plus what those transactions still buy.
+
+    ``remaining`` is derived from paid orders and deliveries, not stored: a
+    balance column drifts from its ledger the first time a write half-succeeds.
+    """
+
+    _or_404(lambda: get_user(session, user_id))
+    orders, quotas = order_history(session, user_id)
+
+    def line(kind: str) -> QuotaLine:
+        granted, used = quotas[kind]
+        return QuotaLine(granted=granted, used=used, remaining=max(0, granted - used))
+
+    return OrderHistory(
+        user_id=user_id,
+        orders=[OrderRead.model_validate(order) for order in orders],
+        resume=line("resume"),
+        interview=line("interview"),
+    )
 
 
 @router.get("/job-fit", response_model=list[JobFitAnalysisRead])

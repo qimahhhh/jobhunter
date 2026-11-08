@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -15,13 +16,20 @@ from .filters import (
     hard_filter,
     location_tokens,
 )
-from .job_hunter import JobHunterAgent, dedupe_key
+from .interview_agent import (
+    answered_ids,
+    decide,
+    evaluate as review_answers,
+    plan_interview,
+)
 from .jd_extract import requirements_for
+from .job_hunter import JobHunterAgent, dedupe_key
 from .job_probe import JobProber
 from .job_query import expand_query
 from .job_sources import JobSource, OfferCampusSource, notices_to_jobs
 from .llm import LLMClient
 from .models import (
+    InterviewSession,
     Job,
     JobFitAnalysis,
     JobMatch,
@@ -38,6 +46,7 @@ from .schemas import (
     JobFitRequest,
     JobFitResponse,
     JobInput,
+    JobRequirement,
     JobStatus,
     ProfileInput,
     ResumeDraftContent,
@@ -74,6 +83,15 @@ from .resume_draft import (
     blocks_from_stored_chunks,
     draft_resume,
 )
+from .schemas_interview import (
+    InterviewAnswerRequest,
+    InterviewEvaluation,
+    InterviewPlan,
+    InterviewSessionRead,
+    InterviewStartRequest,
+    InterviewTurn,
+)
+from .scoring import heuristic_requirements
 
 
 class NotFoundError(ValueError):
@@ -92,8 +110,54 @@ class ConstraintRejectedError(ValueError):
         super().__init__("; ".join(outcome.rejections))
 
 
+class InterviewNotPossibleError(ValueError):
+    """The posting has no requirement an interview could be built on."""
+
+
+class InterviewFinishedError(ValueError):
+    """The session is over, or has no question waiting for an answer."""
+
+
+class InterviewNotFinishedError(ValueError):
+    """There is no complete conversation to review yet."""
+
+
 def _id() -> str:
     return uuid.uuid4().hex
+
+
+def _profile_input(profile: UserProfile) -> ProfileInput:
+    """The three fields every model step is allowed to see.
+
+    Built in one place because matching and interviewing both need it: the two
+    disagreeing about what a profile contains would make one of them answer a
+    slightly different question than the other.
+    """
+
+    capabilities = profile.capabilities or {}
+    return ProfileInput(
+        summary=capabilities["summary"],
+        skills=capabilities.get("skills", []),
+        experiences=capabilities.get("experiences", []),
+    )
+
+
+def _job_input(job: Job, fallback_type: str) -> JobInput:
+    """A stored posting in the shape the agents take.
+
+    A row may predate the ``employment_type`` column, so the caller's
+    expectation stands in rather than the field being nullable everywhere.
+    """
+
+    return JobInput(
+        title=job.title,
+        company=job.company,
+        description=job.description,
+        requirements=job.requirements,
+        employment_type=job.employment_type or fallback_type,
+        source_name=job.source_name,
+        source_url=job.source_url,
+    )
 
 
 # ``Resume.source_type`` of a base draft written by the model. A tailored
@@ -816,24 +880,9 @@ def create_job_match(
         session, job.requirements, job.description, client
     )
 
-    capabilities = profile.capabilities
     report = CareerAnalystAgent().run(
-        ProfileInput(
-            summary=capabilities["summary"],
-            skills=capabilities.get("skills", []),
-            experiences=capabilities.get("experiences", []),
-        ),
-        JobInput(
-            title=job.title,
-            company=job.company,
-            description=job.description,
-            requirements=job.requirements,
-            # A job row may predate the employment_type column; fall back to the
-            # expectation so the keyword analysis can still run.
-            employment_type=job.employment_type or requirements.employment_type,
-            source_name=job.source_name,
-            source_url=job.source_url,
-        ),
+        _profile_input(profile),
+        _job_input(job, requirements.employment_type),
         requirement_set,
     )
     report.notes.append(requirement_note)
@@ -855,6 +904,229 @@ def get_job_match(session: Session, match_id: str) -> JobMatch:
     if match is None:
         raise NotFoundError("job match not found")
     return match
+
+
+def _requirement_text(
+    requirements: Sequence[JobRequirement], requirement_id: str
+) -> str:
+    for requirement in requirements:
+        if requirement.requirement_id == requirement_id:
+            return requirement.text
+    return ""
+
+
+def _interview_read(record: InterviewSession) -> InterviewSessionRead:
+    """The session plus what is left to ask.
+
+    ``remaining`` is derived rather than stored: a stored copy would be a second
+    source of truth for "what has been covered", and the two would drift the
+    first time a write half-succeeded.
+    """
+
+    turns = [InterviewTurn.model_validate(turn) for turn in record.turns]
+    requirements = [
+        JobRequirement.model_validate(item) for item in record.requirements
+    ]
+    asked = answered_ids(turns)
+    return InterviewSessionRead(
+        id=record.id,
+        profile_id=record.user_profile_id,
+        job_id=record.job_id,
+        status=record.status,  # type: ignore[arg-type]
+        max_turns=record.max_turns,
+        plan=InterviewPlan.model_validate(record.plan or {}),
+        turns=turns,
+        remaining=[
+            requirement.requirement_id
+            for requirement in requirements
+            if requirement.requirement_id not in asked
+        ],
+        finish_reason=record.finish_reason or "",
+        notes=list(record.notes or []),
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def _load_interview(session: Session, interview_id: str) -> InterviewSession:
+    record = session.get(InterviewSession, interview_id)
+    if record is None:
+        raise NotFoundError("interview not found")
+    return record
+
+
+def start_interview_session(
+    session: Session,
+    data: InterviewStartRequest,
+    client: LLMClient,
+) -> InterviewSessionRead:
+    """Plan an interview and put its first question on screen.
+
+    The plan is stored before the first answer exists, because it is what the
+    turn-by-turn decisions are allowed to deviate from. A client is required:
+    the whole point of this stage is that a model reads the answer.
+    """
+
+    profile = get_profile(session, data.profile_id)
+    job = get_job(session, data.job_id)
+
+    requirement_set, requirement_note = requirements_for(
+        session, job.requirements, job.description, client
+    )
+    requirements = (requirement_set or heuristic_requirements(job)).requirements
+    if not requirements:
+        raise InterviewNotPossibleError(
+            "这个岗位没有可判定的需求，先补全岗位要求再安排面试"
+        )
+
+    profile_input = _profile_input(profile)
+    expectations = UserRequirements.model_validate(profile.requirements)
+    job_input = _job_input(job, expectations.employment_type)
+    plan, plan_note = plan_interview(profile_input, job_input, requirements, client)
+
+    opening = plan.targets[0]
+    first_turn = InterviewTurn(
+        index=1,
+        kind="ask",
+        requirement_id=opening.requirement_id,
+        requirement_text=_requirement_text(requirements, opening.requirement_id),
+        question=opening.question,
+        why=opening.why,
+    )
+    record = InterviewSession(
+        id=_id(),
+        user_profile_id=profile.id,
+        job_id=job.id,
+        status="in_progress",
+        max_turns=data.max_turns,
+        requirements=[requirement.model_dump() for requirement in requirements],
+        plan=plan.model_dump(),
+        turns=[first_turn.model_dump()],
+        notes=[note for note in (requirement_note, plan_note) if note],
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return _interview_read(record)
+
+
+def answer_interview(
+    session: Session,
+    interview_id: str,
+    data: InterviewAnswerRequest,
+    client: LLMClient,
+) -> InterviewSessionRead:
+    """Record an answer, then let the interviewer choose the next move.
+
+    Three things are enforced here rather than asked of the model: the turn
+    budget, one follow-up per requirement (checked in ``interview_agent``), and
+    the fact that an answer belongs to the question currently on screen.
+    """
+
+    record = _load_interview(session, interview_id)
+    if record.status == "finished":
+        raise InterviewFinishedError("这场面试已经结束")
+
+    turns = [InterviewTurn.model_validate(turn) for turn in record.turns]
+    if not turns or turns[-1].answer is not None:
+        raise InterviewFinishedError("没有待回答的问题")
+    turns[-1].answer = data.answer
+
+    notes = list(record.notes or [])
+    if len(turns) >= record.max_turns:
+        record.status = "finished"
+        record.finish_reason = f"已达到 {record.max_turns} 轮上限"
+        notes.append(f"第 {len(turns)} 轮到达轮次上限，面试结束")
+    else:
+        profile = get_profile(session, record.user_profile_id)
+        job = get_job(session, record.job_id)
+        requirements = [
+            JobRequirement.model_validate(item) for item in record.requirements
+        ]
+        expectations = UserRequirements.model_validate(profile.requirements)
+        decision = decide(
+            _profile_input(profile),
+            _job_input(job, expectations.employment_type),
+            requirements,
+            turns,
+            record.max_turns - len(turns),
+            client,
+        )
+        if decision.note:
+            notes.append(decision.note)
+        if decision.kind == "finish":
+            record.status = "finished"
+            record.finish_reason = decision.reason
+        else:
+            turns.append(
+                InterviewTurn(
+                    index=len(turns) + 1,
+                    kind=decision.kind,
+                    requirement_id=decision.requirement_id,
+                    requirement_text=_requirement_text(
+                        requirements, decision.requirement_id
+                    ),
+                    question=decision.question,
+                    why=decision.why,
+                )
+            )
+
+    record.turns = [turn.model_dump() for turn in turns]
+    record.notes = notes
+    session.commit()
+    session.refresh(record)
+    return _interview_read(record)
+
+
+def read_interview(session: Session, interview_id: str) -> InterviewSessionRead:
+    return _interview_read(_load_interview(session, interview_id))
+
+
+def _evaluation_read(record: InterviewSession) -> InterviewEvaluation:
+    return InterviewEvaluation.model_validate(record.evaluation or {})
+
+
+def evaluate_interview(
+    session: Session,
+    interview_id: str,
+    client: LLMClient,
+    *,
+    refresh: bool = False,
+) -> InterviewEvaluation:
+    """Review a finished interview, once.
+
+    Stored rather than recomputed by default: the same conversation judged twice
+    would drift, and a review someone has already read should not change under
+    them. ``refresh`` is the explicit way to ask for a second opinion.
+
+    A failed review raises instead of storing an empty one — "nothing to report"
+    would be indistinguishable from a review that found nothing wrong.
+    """
+
+    record = _load_interview(session, interview_id)
+    if record.status != "finished":
+        raise InterviewNotFinishedError("面试还没结束，先答完再评估")
+    if record.evaluation and not refresh:
+        return _evaluation_read(record)
+
+    job = get_job(session, record.job_id)
+    profile = get_profile(session, record.user_profile_id)
+    expectations = UserRequirements.model_validate(profile.requirements)
+    requirements = [
+        JobRequirement.model_validate(item) for item in record.requirements
+    ]
+    turns = [InterviewTurn.model_validate(turn) for turn in record.turns]
+
+    evaluation = review_answers(
+        _job_input(job, expectations.employment_type),
+        requirements,
+        turns,
+        client,
+    )
+    record.evaluation = evaluation.model_dump()
+    session.commit()
+    session.refresh(record)
+    return evaluation
 
 
 def create_job_fit_analysis(
