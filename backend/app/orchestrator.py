@@ -180,10 +180,11 @@ class JobHuntOrchestrator:
     that survives search can still be refused by matching; that refusal is
     reported per job in ``skipped`` instead of failing the run or vanishing.
 
-    ``client`` is only needed for the resume stage. Passing ``None`` keeps the
-    pipeline runnable on a deployment without a model key, and asking for a
-    resume in that state fails loudly rather than returning a silently empty
-    ``resume``.
+    ``client`` serves the optional model steps: the resume draft, and the query
+    expansion a request can ask for. Passing ``None`` keeps the pipeline
+    runnable on a deployment without a model key; asking for a resume in that
+    state fails loudly rather than returning a silently empty ``resume``, while
+    expansion just records that it was skipped.
     """
 
     def __init__(self, client: LLMClient | None = None) -> None:
@@ -197,6 +198,7 @@ class JobHuntOrchestrator:
         search = search_jobs(
             session,
             JobSearchRequest(query=request.query, profile_id=request.profile_id),
+            client=self.client,
         )
         events.append(_stage("job_hunter", started, f"{len(search.candidates)} 个候选"))
         notes.extend(search.notes)

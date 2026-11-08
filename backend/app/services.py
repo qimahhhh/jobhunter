@@ -17,6 +17,7 @@ from .filters import (
 )
 from .job_hunter import JobHunterAgent, dedupe_key
 from .job_probe import JobProber
+from .job_query import expand_query
 from .job_sources import JobSource, OfferCampusSource, notices_to_jobs
 from .llm import LLMClient
 from .models import (
@@ -626,8 +627,17 @@ def _narrow_job_query(session: Session, query: JobQuery):
     return statement.order_by(Job.collected_at.desc())
 
 
-def search_jobs(session: Session, data: JobSearchRequest) -> JobSearchResponse:
-    """Rank the stored postings for a query, optionally seeded from a profile."""
+def search_jobs(
+    session: Session,
+    data: JobSearchRequest,
+    client: LLMClient | None = None,
+) -> JobSearchResponse:
+    """Rank the stored postings for a query, optionally seeded from a profile.
+
+    ``client`` is only used when the query asks for expansion, and its absence
+    is a skipped optional step rather than an error: search has to work on a
+    deployment with no model key.
+    """
 
     query = data.query
     notes: list[str] = []
@@ -635,6 +645,17 @@ def search_jobs(session: Session, data: JobSearchRequest) -> JobSearchResponse:
         profile = get_profile(session, data.profile_id)
         query, profile_notes = _query_with_profile_defaults(query, profile)
         notes.extend(profile_notes)
+
+    if query.expand:
+        if client is None:
+            notes.append("未配置模型，查询改写已跳过，按原有关键词检索。")
+        else:
+            aliases, expansion_note = expand_query(query, client)
+            notes.append(expansion_note)
+            if aliases:
+                query = query.model_copy(
+                    update={"aliases": [*query.aliases, *aliases]}
+                )
 
     jobs = _narrow_job_query(session, query).all()
     prefiltered_out = session.query(Job).count() - len(jobs)

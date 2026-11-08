@@ -118,6 +118,20 @@ def _llm_or_503() -> LLMClient:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def _optional_client() -> LLMClient | None:
+    """A client, or None when this deployment has no key.
+
+    Optional steps such as query expansion must not turn a working search into
+    a 503: the response says the step was skipped, which is a different fact
+    from the endpoint being unavailable.
+    """
+
+    try:
+        return _client()
+    except LLMError:
+        return None
+
+
 def _session(session: Session = Depends(get_session)) -> Session:
     return session
 
@@ -539,9 +553,13 @@ def run_job_search(
     Exclusions are part of the answer: a job that is missing because it is in
     another city is a different outcome from a job that was never collected,
     and only the first one can be explained to the user.
+
+    The model client is only built when the query asks for expansion, so an
+    ordinary search never pays for a model it does not use.
     """
 
-    return _or_404(lambda: search_jobs(session, data))
+    client = _optional_client() if data.query.expand else None
+    return _or_404(lambda: search_jobs(session, data, client))
 
 
 @router.post("/job-hunt", response_model=JobHuntResponse)
@@ -560,7 +578,7 @@ def run_job_hunt(
     caller asks for it: a deployment without a key still serves the pipeline.
     """
 
-    client = _llm_or_503() if data.with_resume else None
+    client = _llm_or_503() if data.with_resume else _optional_client()
     return _or_404(lambda: JobHuntOrchestrator(client).run(session, data))
 
 
