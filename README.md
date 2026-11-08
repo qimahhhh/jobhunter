@@ -2,15 +2,15 @@
 
 AI 求职决策与执行平台：上传简历 → 建立档案 → 匹配岗位 → 面试演练 → 生成报告。
 
-- `frontend/`：React + TypeScript + Vite 前端原型（12 个页面）
-- `backend/`：FastAPI + SQLite 后端，负责简历解析、画像抽取、岗位匹配和面试题生成
+- `frontend/`：React + TypeScript + Vite 前端（12 个页面）
+- `backend/`：FastAPI + SQLite 后端，负责简历解析、画像抽取、岗位检索与匹配、简历草稿、面试题生成
 
 ## 目录
 
 | 路径 | 内容 |
 | --- | --- |
 | `frontend/` | React + TypeScript + Vite 应用 |
-| `backend/` | FastAPI 后端与测试，细节见 [backend/README.md](backend/README.md) |
+| `backend/` | FastAPI 后端与测试，接口清单见 [backend/README.md](backend/README.md) |
 | `DESIGN-SPEC.md` | 设计规范（颜色、字号、间距、动效） |
 | `job-hunter-wireframe-v2.html` | 12 块画板线稿，浏览器直接打开 |
 | `job-hunter-keyframes.html` | 关键帧 / 交互演示页 |
@@ -30,13 +30,35 @@ npm run build      # 产物在 frontend/dist/
 
 ## 跑后端
 
+推荐用 uv（仓库带 `uv.lock`）：
+
+```powershell
+uv sync
+uv run uvicorn backend.app.main:app --reload --reload-dir backend
+```
+
+或者 venv：
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
 .\.venv\Scripts\python -m uvicorn backend.app.main:app --reload
 ```
 
-打开 http://127.0.0.1:8000/docs。也可以运行 `.\scripts\run_dev.ps1`。接口清单、简历解析和测试方式见 [backend/README.md](backend/README.md)。
+打开 http://127.0.0.1:8000/docs。数据库默认 `sqlite:///./ai_job_hunter.db`，首次启动自动建表，并给旧库补齐新增字段。
+
+## 配置
+
+从 `.env.example` 复制成 `.env`：
+
+| 变量 | 用途 |
+| --- | --- |
+| `DEEPSEEK_API_KEY` | 简历抽取 / 简历草稿需要的模型 Key；不配置时相关接口返回 `503` |
+| `DEEPSEEK_MODEL` | 默认 `deepseek-chat` |
+| `DEEPSEEK_BASE_URL` | 默认 `https://api.deepseek.com`，可换任意 OpenAI 兼容服务 |
+| `DATABASE_URL` | 默认 `sqlite:///./ai_job_hunter.db` |
+| `OFFER_CAMPUS_API_KEY` | 岗位采集（Offer先生）用；不配置时 `/jobs/collect` 返回 `503` |
+| `OFFER_CAMPUS_API_BASE` | 可覆盖采集接口地址 |
 
 ## 前后端联调
 
@@ -74,8 +96,7 @@ node smoke-test.js                  # 关键帧页冒烟测试
 
 ```powershell
 # 后端
-$env:PYTHONPATH = "."
-python -m unittest discover -s backend/tests -v
+uv run pytest
 ```
 
 ## 演示数据

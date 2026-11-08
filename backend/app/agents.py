@@ -115,6 +115,24 @@ def _display_terms(
     return unique
 
 
+def term_set(value: str) -> set[str]:
+    """Comparable terms of a text, shared with the job search.
+
+    Public wrapper so the search does not reimplement tokenisation and end up
+    with a slightly different notion of "same keyword" than the fit report.
+    """
+
+    return _terms(value)
+
+
+def readable_terms(
+    value: str, terms: set[str], limit: int = _DISPLAY_LIMIT
+) -> list[str]:
+    """Terms as the text spells them, for a response a human reads."""
+
+    return _display_terms(value, terms, limit)
+
+
 def _unmeasured_report(reason: str, recommendation: str) -> FitReport:
     """Zero score that says nothing was measured instead of "nothing matches"."""
 

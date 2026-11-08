@@ -12,8 +12,12 @@ from .schemas import (
     JobInput,
     JobStatus,
     MatchResult,
+    ProfileInput,
     SalaryPeriod,
 )
+
+
+TargetRoleSource = Literal["suggested", "confirmed"]
 
 
 class UserCreate(BaseModel):
@@ -33,6 +37,11 @@ class UserRequirements(BaseModel):
     desired_role: str = Field(min_length=1)
     locations: list[str] = Field(default_factory=list)
     employment_type: EmploymentType = "internship"
+    # ``employment_type`` has a default, so the value alone cannot say whether
+    # the user chose 实习 or never touched the field. A search that inherits a
+    # default turns it into a filter nobody asked for, so the provenance is
+    # stored next to the value: only "confirmed" is inherited.
+    employment_type_source: Literal["default", "confirmed"] = "default"
     salary_min: int | None = None
     salary_max: int | None = None
     salary_period: SalaryPeriod = "month"
@@ -40,16 +49,29 @@ class UserRequirements(BaseModel):
 
 
 class CapabilityProfile(BaseModel):
+    """What the user can do, and the direction the profile is used for.
+
+    ``target_roles`` drives the profile; ``suggested_roles`` keeps what the
+    extraction proposed, so the frontend can show "we suggested this" instead
+    of presenting an unconfirmed guess as the user's own decision.
+    ``target_roles_source`` records which of the two the list came from.
+    """
+
     summary: str = Field(min_length=1)
     skills: list[str] = Field(default_factory=list)
     experiences: list[str] = Field(default_factory=list)
     target_roles: list[str] = Field(default_factory=list)
+    suggested_roles: list[str] = Field(default_factory=list)
+    target_roles_source: TargetRoleSource = "confirmed"
 
 
 class ProfileCreate(BaseModel):
     user_id: str
     requirements: UserRequirements
     capabilities: CapabilityProfile
+    missing_information: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    source_resume_id: str | None = None
 
 
 class ProfileRead(BaseModel):
@@ -59,8 +81,37 @@ class ProfileRead(BaseModel):
     user_id: str
     requirements: UserRequirements
     capabilities: CapabilityProfile
+    missing_information: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    source_resume_id: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ProfileConfirmationRequest(BaseModel):
+    """The human-in-the-loop hand-off: an extraction draft the user reviewed.
+
+    ``recommended_roles`` is what the model proposed; ``target_roles`` is what
+    the user left in the form. Omitting ``target_roles`` means "keep the
+    suggestions", which is stored as ``target_roles_source="suggested"`` so an
+    unconfirmed direction is never presented as a decision.
+
+    ``missing_information`` carries the gaps the draft reported, because a
+    prompt that disappears with the response is a prompt the user never reads.
+
+    ``resume_id`` and ``evidence`` are what make the stored profile traceable:
+    the resume holds the parsed chunks, the evidence names the ones the draft
+    cited, so a claim can be followed back to the paragraph it came from.
+    """
+
+    user_id: str
+    requirements: UserRequirements
+    profile: ProfileInput
+    recommended_roles: list[str] = Field(default_factory=list)
+    target_roles: list[str] | None = None
+    missing_information: list[str] = Field(default_factory=list)
+    resume_id: str | None = None
+    evidence: list[str] = Field(default_factory=list)
 
 
 class ResumeCreate(BaseModel):
@@ -100,9 +151,45 @@ class JobRead(JobCreate):
     id: str
     verification_status: JobStatus
     collected_at: datetime
+    last_seen_at: datetime | None = None
     last_verified_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+# Statuses an operator is allowed to assert. ``unknown`` is left out on
+# purpose: it is what the system says when it has no evidence, not a verdict a
+# human can record.
+VerifiableStatus = Literal[
+    "active", "expired", "source_unavailable", "pending_verification"
+]
+
+
+class JobVerificationDecision(BaseModel):
+    job_id: str
+    status: VerifiableStatus
+
+
+class JobVerificationRequest(BaseModel):
+    """A batch of human verdicts, recorded in one commit.
+
+    Batched because the review step is done by a person with ten tabs open, and
+    one commit means a crash halfway cannot leave five verdicts applied and
+    five not. An id that no longer exists is reported per entry rather than
+    aborting the batch.
+    """
+
+    decisions: list[JobVerificationDecision] = Field(min_length=1)
+
+
+class JobVerificationRejection(BaseModel):
+    job_id: str
+    reason: str
+
+
+class JobVerificationResponse(BaseModel):
+    updated: list[JobRead] = Field(default_factory=list)
+    rejected: list[JobVerificationRejection] = Field(default_factory=list)
 
 
 class JobInputRead(JobInput):

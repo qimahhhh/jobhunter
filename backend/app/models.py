@@ -32,10 +32,16 @@ class UserProfile(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
     )
     requirements: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     capabilities: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    missing_information: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    source_resume_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
@@ -77,8 +83,16 @@ class Job(Base):
     verification_status: Mapped[str] = mapped_column(
         String(32), default="pending_verification"
     )
+    # Identity of the posting across platforms, filled on ingest. Nullable so
+    # rows created before the column existed stay valid and simply never dedupe.
+    dedupe_key: Mapped[str | None] = mapped_column(
+        String(512), unique=True, index=True, nullable=True
+    )
     collected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     last_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
