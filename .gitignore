@@ -35,3 +35,8 @@ env/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 本地设计工具缓存与截图（体积大、可重新生成）
+frontend/.impeccable/
+frontend/.taste-skill/
+frontend/shots/
