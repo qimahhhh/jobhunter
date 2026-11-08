@@ -18,6 +18,7 @@ from .schemas import (
 from .schemas_hunt import JobHuntRequest, JobHuntResponse, JobHuntSkip
 from .schemas_resources import JobMatchCreate, JobMatchRead
 from .schemas_search import JobSearchRequest
+from .scoring import rank_key
 from .services import (
     ConstraintRejectedError,
     NotFoundError,
@@ -180,10 +181,11 @@ class JobHuntOrchestrator:
     that survives search can still be refused by matching; that refusal is
     reported per job in ``skipped`` instead of failing the run or vanishing.
 
-    ``client`` is only needed for the resume stage. Passing ``None`` keeps the
-    pipeline runnable on a deployment without a model key, and asking for a
-    resume in that state fails loudly rather than returning a silently empty
-    ``resume``.
+    ``client`` serves the optional model steps: the resume draft, and the query
+    expansion a request can ask for. Passing ``None`` keeps the pipeline
+    runnable on a deployment without a model key; asking for a resume in that
+    state fails loudly rather than returning a silently empty ``resume``, while
+    expansion just records that it was skipped.
     """
 
     def __init__(self, client: LLMClient | None = None) -> None:
@@ -197,6 +199,7 @@ class JobHuntOrchestrator:
         search = search_jobs(
             session,
             JobSearchRequest(query=request.query, profile_id=request.profile_id),
+            client=self.client,
         )
         events.append(_stage("job_hunter", started, f"{len(search.candidates)} 个候选"))
         notes.extend(search.notes)
@@ -212,6 +215,7 @@ class JobHuntOrchestrator:
                         user_profile_id=request.profile_id,
                         job_id=candidate.job_id,
                     ),
+                    self.client,
                 )
             except ConstraintRejectedError as exc:
                 skipped.append(
@@ -233,6 +237,13 @@ class JobHuntOrchestrator:
                 )
                 continue
             matches.append(JobMatchRead.model_validate(match))
+
+        # Best fit first. Candidates arrive in search order, which answers the
+        # query and says nothing about the profile, so a list of matches used to
+        # be ordered by something other than the number attached to each one.
+        # The tie-break only fires on an exact tie; it never lifts a lower score
+        # above a higher one.
+        matches.sort(key=lambda match: rank_key(match.score, match.must_coverage))
 
         events.append(
             _stage(

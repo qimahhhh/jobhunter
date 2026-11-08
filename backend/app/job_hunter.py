@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import datetime
 
 from .agents import readable_terms, term_set
 from .filters import hard_filter, location_tokens
-from .models import Job
+from .models import Job, as_utc
 from .schemas_resources import UserRequirements
 from .schemas_search import (
     JobCandidate,
@@ -87,7 +87,15 @@ def dedupe_key(*, title: str, company: str, location: str | None = None) -> str:
 
 
 def _query_text(query: JobQuery) -> str:
+    """The words the user asked for. These are the only ones that score."""
+
     return " ".join([query.role, *query.keywords]).strip()
+
+
+def _alias_text(query: JobQuery) -> str:
+    """Words the model added. They widen the gate and never enter the score."""
+
+    return " ".join(query.aliases).strip()
 
 
 def _requirements(query: JobQuery) -> UserRequirements:
@@ -109,18 +117,12 @@ def _requirements(query: JobQuery) -> UserRequirements:
 def _epoch(value: datetime | None) -> float:
     """Seconds since the epoch, reading a stored naive value as UTC.
 
-    SQLite drops the offset, so a timestamp that round-tripped through the
-    database comes back naive while a just-written one is still aware. Both are
-    the same instant, so normalising here is what keeps "newest first" honest:
-    converting the two directly either raises, or silently reads the stored UTC
-    wall time as local time and shifts every row by the offset.
+    SQLite keeps no offset, so a timestamp that round-tripped through the
+    database comes back naive while a just-written one is still aware. Both
+    describe the same instant, and ``as_utc`` is the one place that says so.
     """
 
-    if value is None:
-        return 0.0
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.timestamp()
+    return 0.0 if value is None else as_utc(value).timestamp()
 
 
 def _sort_key(candidate: JobCandidate) -> tuple[float, float]:
@@ -130,25 +132,32 @@ def _sort_key(candidate: JobCandidate) -> tuple[float, float]:
 
 
 def _candidate(
-    job: Job, query_terms: set[str], warnings: list[str]
+    job: Job,
+    query_terms: set[str],
+    alias_terms: set[str],
+    warnings: list[str],
 ) -> JobCandidate | None:
     """Score one posting, or return ``None`` when it is simply not about the query.
 
     Query terms found in the title count double: a posting whose name is the
     role is a better hit than one that only mentions the skill in its body.
+    Alias terms can only rescue a posting from being dropped; they never raise
+    its score, because they are not what the user asked for.
     """
 
     title_terms = term_set(job.title)
     body_terms = term_set(job.requirements) | term_set(job.description)
-    matched = query_terms & (title_terms | body_terms)
+    job_terms = title_terms | body_terms
+    matched = query_terms & job_terms
+    aliases_hit = alias_terms & job_terms
 
-    if query_terms and not matched:
+    if query_terms and not matched and not aliases_hit:
         return None
 
     missing = query_terms - matched
     display_text = " ".join([job.title, job.requirements, job.description])
 
-    if query_terms:
+    if query_terms and matched:
         title_hits = query_terms & title_terms
         score = round(
             (2 * len(title_hits) + len(matched - title_hits))
@@ -159,6 +168,13 @@ def _candidate(
             f"命中 {len(matched)}/{len(query_terms)} 个查询关键词，"
             f"其中 {len(title_hits)} 个出现在岗位名称里。"
         )
+        if aliases_hit:
+            reason += f"另有 {len(aliases_hit)} 个同义词命中。"
+    elif query_terms:
+        # Found only through the model's expansion: a real posting, but it
+        # answers none of the words the user typed, and the score says so.
+        score = 0.0
+        reason = "只通过模型补充的同义词命中，未命中原始关键词。"
     else:
         # Nothing to compare is not the same as "matches nothing", so the score
         # says 0.0 and the note says it was never measured.
@@ -175,6 +191,7 @@ def _candidate(
         source_url=job.source_url,
         score=score,
         matched=readable_terms(display_text, matched, _DISPLAY_LIMIT),
+        aliases_matched=readable_terms(display_text, aliases_hit, _DISPLAY_LIMIT),
         missing=readable_terms(display_text, missing, _DISPLAY_LIMIT),
         reason=reason,
         warnings=list(warnings),
@@ -197,6 +214,7 @@ class JobHunterAgent:
 
     def run(self, jobs: Iterable[Job], query: JobQuery) -> JobSearchResult:
         query_terms = term_set(_query_text(query))
+        alias_terms = term_set(_alias_text(query))
         requirements = _requirements(query)
         candidates: list[JobCandidate] = []
         excluded: list[JobExclusion] = []
@@ -237,7 +255,10 @@ class JobHunterAgent:
                 continue
 
             candidate = _candidate(
-                job, query_terms, [*outcome.unknowns, *_verification_warnings(job)]
+                job,
+                query_terms,
+                alias_terms,
+                [*outcome.unknowns, *_verification_warnings(job)],
             )
             if candidate is None:
                 excluded.append(

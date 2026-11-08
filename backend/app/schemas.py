@@ -117,6 +117,11 @@ class CitedChunk(BaseModel):
 
 class ResumeDraftResponse(BaseModel):
     profile_id: str
+    # Set only when the draft was stored as a version. ``version`` stays 0 and
+    # ``resume_id`` stays None when nothing was written, so "no row" can never
+    # be read as "version zero of something".
+    resume_id: str | None = None
+    version: int = 0
     headline: str
     summary: str
     experiences: list[ResumeExperience]
@@ -200,6 +205,79 @@ class JobVerification(BaseModel):
     source_url: str | None
 
 
+RequirementKind = Literal["must", "should", "nice"]
+RequirementDimension = Literal[
+    "skill", "experience", "domain", "education", "language", "other"
+]
+RequirementStatus = Literal["covered", "partial", "missing", "unknown"]
+
+
+class RequirementTerm(BaseModel):
+    """One checkable group inside a requirement: any alternative satisfies it.
+
+    "熟悉 Python 或 Java" is one group with two alternatives; "熟悉 Python 和
+    Go" is two groups. Keeping that difference in the data is what stops an
+    "or" from being scored as "both are required".
+    """
+
+    any_of: list[str] = Field(min_length=1)
+
+
+class JobRequirement(BaseModel):
+    """One requirement of a posting, as written and as checkable terms.
+
+    ``text`` stays a quote of the posting. It is what a person reads back when
+    a score needs explaining, and it is what stops a requirement from being
+    paraphrased into something easier to satisfy.
+
+    ``terms`` being empty is a real outcome: "沟通能力强" is a requirement
+    nothing in a profile can be matched against, so it is reported as unjudged
+    instead of being counted as unmet.
+    """
+
+    requirement_id: str = ""
+    text: str = Field(min_length=1)
+    kind: RequirementKind = "should"
+    dimension: RequirementDimension = "skill"
+    terms: list[RequirementTerm] = Field(default_factory=list)
+    years: int | None = None
+
+
+class JobRequirementSet(BaseModel):
+    """A posting's requirements, read once and reused by its text hash."""
+
+    requirements: list[JobRequirement] = Field(default_factory=list)
+    years_required: int | None = None
+    education_required: str | None = None
+
+    @model_validator(mode="after")
+    def _assign_ids(self) -> "JobRequirementSet":
+        for index, requirement in enumerate(self.requirements, start=1):
+            if not requirement.requirement_id:
+                requirement.requirement_id = f"r{index}"
+        return self
+
+
+class RequirementScore(BaseModel):
+    """What one requirement contributed to the total, and why.
+
+    This is the explanation a score needs: every point in the total is
+    attributable to a line of the posting, so the ranking can be defended line
+    by line instead of being asserted as a number.
+    """
+
+    requirement_id: str
+    text: str
+    kind: RequirementKind
+    dimension: RequirementDimension
+    weight: float
+    coverage: float = Field(ge=0, le=1)
+    status: RequirementStatus
+    matched_terms: list[str] = Field(default_factory=list)
+    missing_terms: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+
+
 class MatchResult(BaseModel):
     score: float = Field(ge=0, le=1)
     match_points: list[str]
@@ -210,6 +288,20 @@ class MatchResult(BaseModel):
 
 class FitReport(MatchResult):
     summary: str
+    breakdown: list[RequirementScore] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    # Warnings, not verdicts. A missing ``must`` is already paid for inside
+    # ``score`` (its weight stays in the denominator while its coverage stays
+    # 0), so these two fields only describe the shortfall: what to prepare, and
+    # how much of the stated hard requirements was met. Neither changes the
+    # number, and a posting that states no ``must`` has nothing to fall short of.
+    must_gaps: list[str] = Field(default_factory=list)
+    must_coverage: float = Field(default=0.0, ge=0, le=1)
+    # Where the requirement list came from: a model read of the posting, or a
+    # punctuation split. The two are not equally trustworthy, and a score that
+    # cannot say which one it is cannot be argued with.
+    score_source: Literal["extracted", "heuristic"] = "heuristic"
 
 
 class InterviewQuestion(BaseModel):

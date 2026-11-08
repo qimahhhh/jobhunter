@@ -46,6 +46,10 @@ from .schemas_resources import (
     UserRead,
     JobVerificationRequest,
     JobVerificationResponse,
+    JobProbeRequest,
+    JobProbeResponse,
+    JobExpiryRequest,
+    JobExpiryResponse,
 )
 from .schemas_search import (
     JobCollectRequest,
@@ -67,6 +71,7 @@ from .services import (
     create_resume,
     create_user,
     draft_resume_for_profile,
+    expire_stale_jobs,
     get_job,
     get_job_fit_analysis,
     get_job_match,
@@ -76,6 +81,7 @@ from .services import (
     ingest_jobs,
     list_job_fit_analyses,
     list_jobs,
+    probe_jobs,
     search_jobs,
     verify_jobs,
 )
@@ -110,6 +116,20 @@ def _llm_or_503() -> LLMClient:
         return _client()
     except LLMError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _optional_client() -> LLMClient | None:
+    """A client, or None when this deployment has no key.
+
+    Optional steps such as query expansion must not turn a working search into
+    a 503: the response says the step was skipped, which is a different fact
+    from the endpoint being unavailable.
+    """
+
+    try:
+        return _client()
+    except LLMError:
+        return None
 
 
 def _session(session: Session = Depends(get_session)) -> Session:
@@ -392,11 +412,20 @@ def draft_base_resume(
     the chunks saved when it was extracted, so a rewritten bullet can still be
     traced back to the paragraph it came from. Tailoring to a posting is a
     separate step that adds a job to the same pipeline.
+
+    The draft is stored as a new version of this profile's resume and comes back
+    with ``resume_id`` and ``version``. A tailored copy patches one stored
+    version, so the base has to outlive the response; a draft that failed its
+    checks is returned unstored, with ``resume_id`` left None.
     """
 
     profile = _or_404(lambda: get_profile(session, data.profile_id))
     return draft_resume_for_profile(
-        session, profile, _llm_or_503(), data.max_chunk_tokens
+        session,
+        profile,
+        _llm_or_503(),
+        data.max_chunk_tokens,
+        persist=True,
     )
 
 
@@ -495,6 +524,35 @@ def verify_job_statuses(
     return verify_jobs(session, data)
 
 
+@router.post("/jobs/probe", response_model=JobProbeResponse)
+def probe_job_sources(
+    data: JobProbeRequest, session: Session = Depends(_session)
+) -> JobProbeResponse:
+    """Check stored postings against the pages they were collected from.
+
+    The machine can only downgrade: a 404 or an 已截止 marker closes a posting,
+    while a page that still loads proves nothing about hiring and therefore
+    changes no status. Every check records ``last_checked_at``, which is kept
+    separate from ``last_verified_at`` so "a machine looked" and "a person
+    confirmed" never get confused.
+    """
+
+    return probe_jobs(session, data)
+
+
+@router.post("/jobs/expire-stale", response_model=JobExpiryResponse)
+def expire_stale_postings(
+    data: JobExpiryRequest, session: Session = Depends(_session)
+) -> JobExpiryResponse:
+    """Stop recommending postings no collection has returned for a while.
+
+    Marked expired rather than deleted, and reversible: if the source publishes
+    the posting again the collector puts it back to pending for a fresh look.
+    """
+
+    return expire_stale_jobs(session, data)
+
+
 @router.post("/job-search", response_model=JobSearchResponse)
 def run_job_search(
     data: JobSearchRequest, session: Session = Depends(_session)
@@ -504,9 +562,13 @@ def run_job_search(
     Exclusions are part of the answer: a job that is missing because it is in
     another city is a different outcome from a job that was never collected,
     and only the first one can be explained to the user.
+
+    The model client is only built when the query asks for expansion, so an
+    ordinary search never pays for a model it does not use.
     """
 
-    return _or_404(lambda: search_jobs(session, data))
+    client = _optional_client() if data.query.expand else None
+    return _or_404(lambda: search_jobs(session, data, client))
 
 
 @router.post("/job-hunt", response_model=JobHuntResponse)
@@ -525,7 +587,7 @@ def run_job_hunt(
     caller asks for it: a deployment without a key still serves the pipeline.
     """
 
-    client = _llm_or_503() if data.with_resume else None
+    client = _llm_or_503() if data.with_resume else _optional_client()
     return _or_404(lambda: JobHuntOrchestrator(client).run(session, data))
 
 
@@ -536,8 +598,15 @@ def read_job(job_id: str, session: Session = Depends(_session)) -> JobRead:
 
 @router.post("/job-matches", response_model=JobMatchRead, status_code=201)
 def add_job_match(data: JobMatchCreate, session: Session = Depends(_session)) -> JobMatchRead:
+    """Score a stored posting against a stored profile.
+
+    The model client is optional and only buys the requirement extraction: a
+    deployment without a key scores by splitting the posting on punctuation,
+    and the stored match says which of the two produced the number.
+    """
+
     try:
-        match = create_job_match(session, data)
+        match = create_job_match(session, data, _optional_client())
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ConstraintRejectedError as exc:

@@ -3,12 +3,24 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def as_utc(value: datetime) -> datetime:
+    """A stored timestamp read as UTC.
+
+    SQLite keeps no offset, so a value that round-tripped through the database
+    comes back naive while a freshly written one is still aware. Both mean the
+    same instant; normalising where they are compared keeps that true without a
+    custom column type, and keeps one definition of the rule.
+    """
+
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 class Base(DeclarativeBase):
@@ -97,6 +109,12 @@ class Job(Base):
     last_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # When the source page was last checked by a machine. Separate from
+    # ``last_verified_at`` on purpose: a 200 says the page exists, not that the
+    # posting is open, so the two can never share a field.
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
@@ -119,6 +137,42 @@ class JobMatch(Base):
     recommendation: Mapped[str] = mapped_column(Text)
     confidence: Mapped[float] = mapped_column(Float)
     unknowns: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # What each requirement contributed. Stored with the match because the
+    # explanation has to survive the request that produced it: a ranking read
+    # back tomorrow without its breakdown is a number nobody can defend.
+    breakdown: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    # The shortfall against the posting's stated musts, stored next to the match
+    # because it is what a user reads before applying. It is not part of the
+    # score, and only breaks a tie when two postings rank the same.
+    must_gaps: Mapped[list[str]] = mapped_column(JSON, default=list)
+    must_coverage: Mapped[float] = mapped_column(Float, default=0.0)
+    score_source: Mapped[str] = mapped_column(String(16), default="heuristic")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class StoredRequirementSet(Base):
+    """A posting's requirements, read once and keyed by its text.
+
+    Keyed by hash rather than by job id because the same posting appears more
+    than once (re-posted, mirrored, collected twice), and paying a model call
+    for each copy would turn reproducibility into an accident of timing.
+
+    ``extractor_version`` is part of the key on purpose: a new prompt makes
+    different requirements, and silently reusing the old ones would leave the
+    cache looking trustworthy while the code it describes has changed.
+    """
+
+    __tablename__ = "job_requirement_sets"
+    __table_args__ = (
+        UniqueConstraint(
+            "jd_hash", "extractor_version", name="ux_job_requirement_sets_text"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    jd_hash: Mapped[str] = mapped_column(String(64), index=True)
+    extractor_version: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

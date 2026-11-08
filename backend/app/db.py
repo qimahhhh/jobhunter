@@ -22,6 +22,7 @@ _ADDED_JOB_COLUMNS = (
     ("employment_type", "VARCHAR(32)"),
     ("dedupe_key", "VARCHAR(512)"),
     ("last_seen_at", "DATETIME"),
+    ("last_checked_at", "DATETIME"),
 )
 
 # Columns a stored profile grew after the first schema. ``ALTER TABLE`` in
@@ -30,6 +31,20 @@ _ADDED_PROFILE_COLUMNS = (
     ("missing_information", "JSON DEFAULT '[]'"),
     ("evidence", "JSON DEFAULT '[]'"),
     ("source_resume_id", "VARCHAR(36)"),
+)
+
+# Columns ``job_matches`` grew once a score had to explain itself.
+_ADDED_MATCH_COLUMNS = (
+    ("breakdown", "JSON DEFAULT '[]'"),
+    ("must_gaps", "JSON DEFAULT '[]'"),
+    # A row written before the column existed holds NULL, which does not
+    # validate as a float; 0.0 is also true of it, since its score was a plain
+    # keyword coverage that never separated the must requirements out.
+    ("must_coverage", "FLOAT DEFAULT 0.0"),
+    # Defaulted rather than merely added: NULL does not validate as "extracted"
+    # or "heuristic", and a score from before this column really was a keyword
+    # coverage, so the default is also the truth.
+    ("score_source", "VARCHAR(16) DEFAULT 'heuristic'"),
 )
 
 
@@ -134,6 +149,24 @@ def _migrate_user_profiles(inspector: Any) -> None:
         )
 
 
+def _migrate_job_matches(inspector: Any) -> None:
+    """Add the columns that keep a stored score explainable.
+
+    A match computed before the column existed has no breakdown to show; the
+    JSON default gives it an empty one, so an old row reads as "nothing to
+    explain" instead of breaking the endpoint.
+    """
+
+    columns = _columns(inspector, "job_matches")
+    for name, definition in _ADDED_MATCH_COLUMNS:
+        if name in columns:
+            continue
+        with engine.begin() as connection:
+            connection.execute(
+                text(f"ALTER TABLE job_matches ADD COLUMN {name} {definition}")
+            )
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
     inspector = inspect(engine)
@@ -142,6 +175,8 @@ def init_db() -> None:
         _migrate_jobs(inspector)
     if "user_profiles" in tables:
         _migrate_user_profiles(inspector)
+    if "job_matches" in tables:
+        _migrate_job_matches(inspector)
 
 
 def get_session() -> Iterator[Session]:

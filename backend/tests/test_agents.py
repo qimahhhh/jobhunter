@@ -69,14 +69,16 @@ class ChineseKeywordMatchingTest(unittest.TestCase):
         )
 
         self.assertEqual(report.score, 0.0)
-        self.assertEqual(report.confidence, 0.0)
+        # A measured zero is not an unmeasured one: the requirement was read and
+        # met by nothing, so confidence is high rather than absent.
+        self.assertEqual(report.confidence, 0.8)
         self.assertIn("嵌入式开发", report.gaps)
         self.assertNotIn("熟悉", report.gaps)
         self.assertTrue(
             report.recommendation.startswith("Prioritize quantified evidence")
         )
 
-    def test_ascii_only_scoring_is_unchanged(self) -> None:
+    def test_ascii_only_requirement_keeps_its_score(self) -> None:
         report = CareerAnalystAgent().run(
             ProfileInput(summary="Python student", skills=["Python"]),
             _job("Python"),
@@ -85,7 +87,9 @@ class ChineseKeywordMatchingTest(unittest.TestCase):
         self.assertEqual(report.score, 1.0)
         self.assertEqual(report.match_points, ["python"])
         self.assertEqual(report.gaps, [])
-        self.assertEqual(report.confidence, 0.5)
+        self.assertEqual(report.confidence, 0.8)
+        self.assertEqual(report.score_source, "heuristic")
+        self.assertEqual([entry.status for entry in report.breakdown], ["covered"])
 
 
 if __name__ == "__main__":

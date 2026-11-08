@@ -13,6 +13,7 @@ from .schemas import (
     JobStatus,
     MatchResult,
     ProfileInput,
+    RequirementScore,
     SalaryPeriod,
 )
 
@@ -153,6 +154,7 @@ class JobRead(JobCreate):
     collected_at: datetime
     last_seen_at: datetime | None = None
     last_verified_at: datetime | None = None
+    last_checked_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -192,6 +194,48 @@ class JobVerificationResponse(BaseModel):
     rejected: list[JobVerificationRejection] = Field(default_factory=list)
 
 
+ProbeVerdict = Literal["alive", "gone", "unreachable", "no_source"]
+
+
+class JobProbeRequest(BaseModel):
+    """Which stored postings to check against their source page.
+
+    Re-checking ``active`` postings is allowed on purpose: a link that has since
+    gone 404 is evidence a human verdict has expired, and the machine is
+    allowed to say so even when it is not allowed to say the opposite.
+    """
+
+    status: JobStatus = "pending_verification"
+    limit: int = Field(default=10, ge=1, le=50)
+    timeout_seconds: float = Field(default=5.0, ge=1.0, le=20.0)
+
+
+class JobProbeResult(BaseModel):
+    job_id: str
+    title: str
+    verdict: ProbeVerdict
+    detail: str
+
+
+class JobProbeResponse(BaseModel):
+    checked: int = 0
+    alive: int = 0
+    results: list[JobProbeResult] = Field(default_factory=list)
+    expired: list[str] = Field(default_factory=list)
+    unavailable: list[str] = Field(default_factory=list)
+
+
+class JobExpiryRequest(BaseModel):
+    """Postings nobody has seen for this long stop being recommended."""
+
+    max_age_days: int = Field(default=14, ge=1, le=365)
+
+
+class JobExpiryResponse(BaseModel):
+    expired: list[str] = Field(default_factory=list)
+    max_age_days: int
+
+
 class JobInputRead(JobInput):
     employment_type: EmploymentType | None = None
 
@@ -217,6 +261,12 @@ class JobMatchRead(JobMatchCreate, MatchResult):
     recommendation: str
     confidence: float
     unknowns: list[str] = Field(default_factory=list)
+    breakdown: list[RequirementScore] = Field(default_factory=list)
+    # The shortfall against the posting's stated musts. Reported so a user knows
+    # what to prepare, never subtracted from ``score``.
+    must_gaps: list[str] = Field(default_factory=list)
+    must_coverage: float = Field(default=0.0, ge=0, le=1)
+    score_source: Literal["extracted", "heuristic"] = "heuristic"
     created_at: datetime
 
 

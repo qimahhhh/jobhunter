@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from typing import Any
+from unittest import mock
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -139,13 +140,25 @@ class JobHuntPipelineTest(unittest.TestCase):
         create_job(self.session, _job("AI 实习生"))
         client = _FakeClient(
             [
+                # Matching runs before the resume stage and costs one model call
+                # per posting: the requirements are read once, then cached.
+                {
+                    "requirements": [
+                        {
+                            "text": "熟悉 Python",
+                            "kind": "must",
+                            "dimension": "skill",
+                            "terms": [{"any_of": ["Python"]}],
+                        }
+                    ]
+                },
                 {
                     "summary": "计算机专业学生，熟悉 Python。",
                     "experiences": [],
                     "skills": ["Python"],
                     "education": [],
                     "suggestions": [],
-                }
+                },
             ]
         )
 
@@ -156,6 +169,12 @@ class JobHuntPipelineTest(unittest.TestCase):
         self.assertIsNotNone(result.resume)
         self.assertFalse(result.resume.degraded)
         self.assertIn("resume", [event.stage for event in result.run_log])
+        # The same request also bought a requirement read for the matched job,
+        # which is what makes the stored score explainable.
+        self.assertEqual(result.matches[0].score_source, "extracted")
+        self.assertEqual(
+            [row.text for row in result.matches[0].breakdown], ["熟悉 Python"]
+        )
 
     def test_asking_for_a_resume_without_a_client_fails_loudly(self) -> None:
         profile = self._profile()
@@ -175,9 +194,10 @@ class JobHuntPipelineTest(unittest.TestCase):
         profile = self._profile()
         job = create_job(self.session, _job("AI 实习生"))
 
-        result = run_job_hunt(
-            JobHuntRequest(profile_id=profile.id), session=self.session
-        )
+        with mock.patch("backend.app.routers._optional_client", return_value=None):
+            result = run_job_hunt(
+                JobHuntRequest(profile_id=profile.id), session=self.session
+            )
 
         self.assertEqual(result.profile_id, profile.id)
         self.assertEqual([match.job_id for match in result.matches], [job.id])

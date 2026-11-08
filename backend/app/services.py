@@ -16,6 +16,9 @@ from .filters import (
     location_tokens,
 )
 from .job_hunter import JobHunterAgent, dedupe_key
+from .jd_extract import requirements_for
+from .job_probe import JobProber
+from .job_query import expand_query
 from .job_sources import JobSource, OfferCampusSource, notices_to_jobs
 from .llm import LLMClient
 from .models import (
@@ -25,6 +28,7 @@ from .models import (
     Resume,
     User,
     UserProfile,
+    as_utc,
     utc_now,
 )
 from .schemas import (
@@ -41,7 +45,12 @@ from .schemas import (
 )
 from .schemas_resources import (
     JobCreate,
+    JobExpiryRequest,
+    JobExpiryResponse,
     JobMatchCreate,
+    JobProbeRequest,
+    JobProbeResponse,
+    JobProbeResult,
     JobRead,
     JobVerificationRejection,
     JobVerificationRequest,
@@ -87,6 +96,12 @@ def _id() -> str:
     return uuid.uuid4().hex
 
 
+# ``Resume.source_type`` of a base draft written by the model. A tailored
+# resume is a patch against one stored base, so the row has to outlive the
+# response it arrived in.
+BASE_DRAFT_SOURCE = "draft"
+
+
 def _job_input_to_job(data: JobInput, *, id: str) -> Job:
     return Job(
         id=id,
@@ -114,6 +129,10 @@ def _fit_report_to_job_match(
         recommendation=report.recommendation,
         confidence=report.confidence,
         unknowns=list(unknowns or []),
+        breakdown=[entry.model_dump() for entry in report.breakdown],
+        must_gaps=list(report.must_gaps),
+        must_coverage=report.must_coverage,
+        score_source=report.score_source,
     )
 
 
@@ -211,11 +230,96 @@ def get_resume(session: Session, resume_id: str) -> Resume:
     return resume
 
 
+def base_resume_content(
+    response: ResumeDraftResponse, *, profile_id: str
+) -> dict[str, Any]:
+    """The stored shape of a base draft, with one id per bullet.
+
+    The response reads fine without ids; a tailored version cannot work without
+    them, because a patch says "rewrite e2-b1" and there has to be an e2-b1 to
+    point at. Ids are positional rather than hashed: a patch is generated
+    against one stored version, so an id only has to be stable inside that
+    version, and a person reading a diff can count their way to e2-b1.
+
+    ``cited_chunks`` travels with the resume on purpose. The chunks themselves
+    live in the extraction record, but a profile can be built from a structured
+    dump that has no source resume at all, and then the cited text is the only
+    thing left to check a rewritten number against.
+    """
+
+    return {
+        "profile_id": profile_id,
+        "headline": response.headline,
+        "summary": response.summary,
+        "experiences": [
+            {
+                "heading": experience.heading,
+                "bullets": [
+                    {
+                        "bullet_id": f"e{index}-b{position}",
+                        "text": bullet.text,
+                        "sources": list(bullet.sources),
+                    }
+                    for position, bullet in enumerate(experience.bullets, start=1)
+                ],
+            }
+            for index, experience in enumerate(response.experiences, start=1)
+        ],
+        "skills": list(response.skills),
+        "education": list(response.education),
+        "suggestions": list(response.suggestions),
+        "cited_chunks": [chunk.model_dump() for chunk in response.cited_chunks],
+        "notes": list(response.notes),
+    }
+
+
+def save_base_resume(
+    session: Session, profile: UserProfile, response: ResumeDraftResponse
+) -> Resume:
+    """Store a base draft as the next version of this profile's resume.
+
+    Every draft becomes a new row instead of overwriting the previous one: a
+    tailored resume patches one specific base, so the base a patch cites has to
+    survive the next draft replacing it.
+
+    Versions are counted per profile, not per user. One user applying in two
+    directions has two profiles, and a version number that jumped because the
+    other direction was drafted would say nothing about either history.
+
+    The lookup filters ``source_type`` in SQL and ``profile_id`` in Python: a
+    JSON key comparison is spelled differently on SQLite and PostgreSQL, and one
+    profile's draft history is short enough that scanning it costs nothing.
+    """
+
+    history = [
+        record
+        for record in session.query(Resume).filter(
+            Resume.source_type == BASE_DRAFT_SOURCE
+        )
+        if (record.content or {}).get("profile_id") == profile.id
+    ]
+    version = max((record.version for record in history), default=0) + 1
+    record = Resume(
+        id=_id(),
+        user_id=profile.user_id,
+        source_type=BASE_DRAFT_SOURCE,
+        source_name=f"基础简历草稿 v{version}",
+        version=version,
+        content=base_resume_content(response, profile_id=profile.id),
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return record
+
+
 def draft_resume_for_profile(
     session: Session,
     profile: UserProfile,
     client: LLMClient,
     max_chunk_tokens: int = DEFAULT_MAX_CHUNK_TOKENS,
+    *,
+    persist: bool = False,
 ) -> ResumeDraftResponse:
     """Draft a base resume from a stored profile and its source chunks.
 
@@ -224,6 +328,14 @@ def draft_resume_for_profile(
     different resumes depending on which route was called. The caller resolves
     the profile first so a missing id is still a 404 and never costs a model
     call.
+
+    ``persist`` stores the draft as the next version and returns its id. The
+    hunt pipeline leaves it off: a resume the user never opened should not fill
+    the history with one row per search.
+
+    A draft that failed its checks is never stored. It is an error report with
+    empty content, and a version number would let a later patch cite a base that
+    has nothing in it.
     """
 
     blocks = blocks_from_profile(profile.capabilities or {})
@@ -235,7 +347,7 @@ def draft_resume_for_profile(
 
     result = draft_resume(blocks, client, max_chunk_tokens=max_chunk_tokens)
     content = result.content or ResumeDraftContent()
-    return ResumeDraftResponse(
+    response = ResumeDraftResponse(
         profile_id=profile.id,
         headline=content.headline,
         summary=content.summary,
@@ -257,6 +369,13 @@ def draft_resume_for_profile(
         unverified_fields=result.unverified_fields,
         degraded=result.degraded,
         notes=result.notes,
+    )
+    if not (persist and not result.degraded):
+        return response
+
+    record = save_base_resume(session, profile, response)
+    return response.model_copy(
+        update={"resume_id": record.id, "version": record.version}
     )
 
 
@@ -427,6 +546,102 @@ def verify_jobs(
     )
 
 
+def probe_jobs(
+    session: Session,
+    data: JobProbeRequest,
+    prober: JobProber | None = None,
+) -> JobProbeResponse:
+    """Check stored postings against the pages they came from.
+
+    The machine may only ever downgrade. A 404 or a ``已截止`` marker is
+    evidence the posting is closed; a 200 is not evidence that anyone is still
+    hiring, so an alive result records that the check happened and changes
+    nothing else. An unreachable source only downgrades postings a human has not
+    already spoken for, because a site refusing a bot says nothing about the
+    job, and a transient timeout must not overwrite a verdict.
+    """
+
+    checker = prober or JobProber(timeout=data.timeout_seconds)
+    checked_at = utc_now()
+    jobs = list_jobs(session, verification_status=data.status)[: data.limit]
+
+    results: list[JobProbeResult] = []
+    expired: list[str] = []
+    unavailable: list[str] = []
+    alive = 0
+
+    for job in jobs:
+        outcome = checker.probe(job.id, job.source_url)
+        job.last_checked_at = checked_at
+
+        if outcome.verdict == "gone":
+            job.verification_status = "expired"
+            expired.append(job.id)
+        elif outcome.verdict == "unreachable" and job.verification_status != "active":
+            job.verification_status = "source_unavailable"
+            unavailable.append(job.id)
+        elif outcome.verdict == "alive":
+            alive += 1
+
+        results.append(
+            JobProbeResult(
+                job_id=job.id,
+                title=job.title,
+                verdict=outcome.verdict,
+                detail=outcome.detail,
+            )
+        )
+
+    session.commit()
+    return JobProbeResponse(
+        checked=len(jobs),
+        alive=alive,
+        results=results,
+        expired=expired,
+        unavailable=unavailable,
+    )
+
+
+def expire_stale_jobs(
+    session: Session, data: JobExpiryRequest
+) -> JobExpiryResponse:
+    """Mark postings nobody has seen for a while, without deleting them.
+
+    Age is read from the last moment there was evidence the posting exists:
+    collected (``last_seen_at``, falling back to ``collected_at``) or confirmed
+    by a person (``last_verified_at``). Taking the latest of the three is what
+    stops a collection that simply did not run for a fortnight from expiring a
+    posting someone checked yesterday.
+
+    Marked rather than removed: a posting that comes back is picked up by the
+    collector again, and a decision that leaves no row behind cannot be
+    explained to anyone.
+
+    The comparison happens in Python on purpose. SQLite stores no offset, so a
+    cutoff bound into SQL would be compared against a differently shaped string,
+    and the same query would behave differently on PostgreSQL.
+    """
+
+    now = utc_now()
+    threshold = data.max_age_days * 86400
+    expired: list[str] = []
+
+    for job in session.query(Job).filter(Job.verification_status != "expired").all():
+        stamps = [
+            as_utc(value)
+            for value in (job.last_seen_at, job.collected_at, job.last_verified_at)
+            if value is not None
+        ]
+        if not stamps:
+            continue
+        if (now - max(stamps)).total_seconds() > threshold:
+            job.verification_status = "expired"
+            expired.append(job.id)
+
+    session.commit()
+    return JobExpiryResponse(expired=expired, max_age_days=data.max_age_days)
+
+
 def _query_with_profile_defaults(
     query: JobQuery, profile: UserProfile
 ) -> tuple[JobQuery, list[str]]:
@@ -523,8 +738,17 @@ def _narrow_job_query(session: Session, query: JobQuery):
     return statement.order_by(Job.collected_at.desc())
 
 
-def search_jobs(session: Session, data: JobSearchRequest) -> JobSearchResponse:
-    """Rank the stored postings for a query, optionally seeded from a profile."""
+def search_jobs(
+    session: Session,
+    data: JobSearchRequest,
+    client: LLMClient | None = None,
+) -> JobSearchResponse:
+    """Rank the stored postings for a query, optionally seeded from a profile.
+
+    ``client`` is only used when the query asks for expansion, and its absence
+    is a skipped optional step rather than an error: search has to work on a
+    deployment with no model key.
+    """
 
     query = data.query
     notes: list[str] = []
@@ -532,6 +756,17 @@ def search_jobs(session: Session, data: JobSearchRequest) -> JobSearchResponse:
         profile = get_profile(session, data.profile_id)
         query, profile_notes = _query_with_profile_defaults(query, profile)
         notes.extend(profile_notes)
+
+    if query.expand:
+        if client is None:
+            notes.append("未配置模型，查询改写已跳过，按原有关键词检索。")
+        else:
+            aliases, expansion_note = expand_query(query, client)
+            notes.append(expansion_note)
+            if aliases:
+                query = query.model_copy(
+                    update={"aliases": [*query.aliases, *aliases]}
+                )
 
     jobs = _narrow_job_query(session, query).all()
     prefiltered_out = session.query(Job).count() - len(jobs)
@@ -555,7 +790,20 @@ def search_jobs(session: Session, data: JobSearchRequest) -> JobSearchResponse:
     )
 
 
-def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
+def create_job_match(
+    session: Session,
+    data: JobMatchCreate,
+    client: LLMClient | None = None,
+) -> JobMatch:
+    """Score one stored posting against one stored profile.
+
+    ``client`` is optional and only buys the requirement extraction. Passing
+    ``None`` still produces a score, a breakdown and a reason for every line —
+    the requirements are then split on punctuation instead of read by a model,
+    and ``score_source`` says so. A deployment without a key therefore keeps
+    working, and a result never has to be guessed at afterwards.
+    """
+
     profile = get_profile(session, data.user_profile_id)
     job = get_job(session, data.job_id)
 
@@ -563,6 +811,10 @@ def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
     outcome = hard_filter(job, requirements)
     if not outcome.passed:
         raise ConstraintRejectedError(outcome)
+
+    requirement_set, requirement_note = requirements_for(
+        session, job.requirements, job.description, client
+    )
 
     capabilities = profile.capabilities
     report = CareerAnalystAgent().run(
@@ -582,7 +834,9 @@ def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
             source_name=job.source_name,
             source_url=job.source_url,
         ),
+        requirement_set,
     )
+    report.notes.append(requirement_note)
     match = _fit_report_to_job_match(
         report,
         id=_id(),

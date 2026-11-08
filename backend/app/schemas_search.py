@@ -23,6 +23,11 @@ class JobQuery(BaseModel):
     employment_type: EmploymentType | None = None
     salary_min: int | None = None
     salary_period: SalaryPeriod = "month"
+    # ``expand`` asks for one model call that fills ``aliases``. The aliases are
+    # only ever extra matching terms: they widen the gate, never the score, and
+    # never touch locations, salary or the postings themselves.
+    expand: bool = False
+    aliases: list[str] = Field(default_factory=list)
     # Opt-in and deliberately lossy: the user asks for "only what has been
     # verified as open", so unverified rows are dropped rather than shown with
     # a caveat. Off by default, because an empty demo is worse than a labelled
@@ -41,6 +46,9 @@ class JobCandidate(BaseModel):
     source_url: str | None = None
     score: float = Field(ge=0, le=1)
     matched: list[str] = Field(default_factory=list)
+    # Hits that came from the model's expansion rather than the user's words.
+    # Reported apart so a synonym match never looks like an answered requirement.
+    aliases_matched: list[str] = Field(default_factory=list)
     missing: list[str] = Field(default_factory=list)
     reason: str
     warnings: list[str] = Field(default_factory=list)
