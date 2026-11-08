@@ -49,6 +49,12 @@ python -m venv .venv
 | `POST /api/v1/interviews/{id}/answers` | 提交回答，返回下一题或结束原因。轮次上限、同一需求最多追问一次由代码强制。已结束或无待答题目时返回 `409`。 |
 | `GET /api/v1/interviews/{id}` | 回放整场：计划、每轮问答，以及尚未覆盖的需求编号。 |
 | `POST /api/v1/interviews/{id}/evaluation` | 对已结束的面试逐条判定：`answered` / `surface` / `unanswered`，每条带证据原句、还差什么、怎么补；另给优势、改进建议与可复算的 `coverage`。结果存在 session 上，重复调用不再花调用；`?refresh=true` 才重算。未结束返回 `409`，失败返回 `502`。 |
+| `GET /api/v1/products` | 定价数据：`code` / `name` / `price_cents` / `unit` / `grants` / `features`。价格只存在这里，前端不要写死。 |
+| `POST /api/v1/orders` | 下单：客户端只说买什么、买几份，金额由服务端按目录计算。带 `idempotency_key` 的重放返回同一张单（`200` 而不是 `201`）。 |
+| `GET /api/v1/orders/{id}` | 收银台轮询用。 |
+| `POST /api/v1/orders/{id}/payment` | 模拟支付：`provider` 只能是 `simulated`，重复调用不改 `paid_at`。 |
+| `POST /api/v1/orders/{id}/deliveries` | 记录交付物（简历 id 或面试 session id）：必须已支付、必须属于该买家、必须有剩余次数。 |
+| `GET /api/v1/users/{id}/orders` | 交易流水 + 剩余次数（`resume` / `interview`）。 |
 
 资源接口对不存在的 ID 返回 `404`；岗位不满足硬约束时，`POST /api/v1/job-matches` 返回 `422`，其中包含 `rejections` 和 `unknowns`。上传抽取接口对不支持的文件类型返回 `415`、空文件返回 `400`、超过 20MB 返回 `413`、模型未配置返回 `503`。
 
@@ -81,6 +87,12 @@ python -m venv .venv
 `answered` 必须引得出原句：校验会把 `evidence` 和该需求对应的回答做归一化子串比对（NFKC + 去空白），对不上就降级成 `surface` 并在 `notes` 里说明——摘不出原文的“他答得很好”是模型印象，不是发现。同样，判定里出现不存在的 `requirement_id` 会被丢掉，没被判定到的需求会被补成 `unanswered`，否则“覆盖率”和列表会互相矛盾。
 
 唯一的数字是 `coverage = answered / 需求总数`，它是上面三档的计数，任何人都能拿返回的列表复算一遍；没有总评分数，也没有等级。结果会存在 session 上：同一场对话不该被判定两次而漂移，`refresh=true` 是显式要求重新评一次的唯一途径。
+
+**商业化：三张表，两个不变量**：`products` 回答“多少钱”，`orders` 回答“他同意付多少”，`deliveries` 回答“他实际拿到了什么”。没有第四张“余额表”——剩余次数 = 已支付订单授予的次数 − 已记录的交付，用流水推导。余额列和流水一旦不同步，你在演示现场解释不清哪个是对的。
+
+两个不变量写在代码里而不是文档里：**金额只由服务端按目录计算**（`OrderCreate` 里根本没有 amount 字段且 `extra="forbid"`，客户端想定价就是 `422`）；**`paid` 只能通过支付步骤到达，而交付必须先有 `paid`**，否则“交易→交付”就是两张互不相干的表。模拟支付固定记成 `provider="simulated"`，和真渠道永远分开——以后接微信支付时，你不需要考古哪笔是真钱。
+
+交付的 `kind` 由商品决定（`grants`），不由请求决定：能自己指定 kind 的调用方，就能拿面试次数去交付简历。同时校验这份简历/面试确实属于买家，否则一个人可以拿别人的成果冲自己的次数。价格存在表里、目录首次被读时补齐但**从不覆盖**已存在的行——手改过的价格就是当前价格，重新部署不是回滚它的理由。
 
 **岗位需求只读一次**：`backend/app/jd_extract.py` 用一次模型调用把岗位描述读成需求项（`kind`、`dimension`、`terms`），结果按 `sha256(NFKC 后的要求 + 描述) + extractor_version` 缓存在 `job_requirement_sets`，同一岗位重复匹配不再调用模型；改了 prompt 就升版本号，旧缓存自然失效，而不是悄悄把两种需求混在一起。模型只被要求给出结构，从不被要求打分：权重来自 `scoring.DEFAULT_CONFIG`，所以同一对(画像, 岗位)算两次得到同一个数，即使模型把需求措辞得不一样。
 

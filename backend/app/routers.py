@@ -6,11 +6,23 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from .billing import (
+    BillingError,
+    DeliveryNotAllowedError,
+    OrderNotFoundError,
+    PaymentNotAllowedError,
+    add_delivery,
+    create_order,
+    get_order,
+    list_products,
+    mark_paid,
+    order_history,
+)
 from .chunking import blocks_from_docx, blocks_from_pdf
 from .db import get_session
 from .extraction_service import ResumeExtractionService
@@ -28,6 +40,16 @@ from .schemas import (
     ResumeExtractionRequest,
     ResumeExtractionResponse,
     ResumeSourceBundleRequest,
+)
+from .schemas_billing import (
+    DeliveryCreate,
+    DeliveryRead,
+    OrderCreate,
+    OrderHistory,
+    OrderRead,
+    PaymentRequest,
+    ProductRead,
+    QuotaLine,
 )
 from .schemas_hunt import JobHuntRequest, JobHuntResponse
 from .schemas_resources import (
@@ -748,6 +770,159 @@ def evaluate_interview_session(
         raise HTTPException(status_code=502, detail=f"评估失败：{exc}") from exc
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/products", response_model=list[ProductRead])
+def read_products(session: Session = Depends(_session)) -> list[ProductRead]:
+    """The price list, as rows rather than constants in the page.
+
+    The catalog is filled on first read and never overwritten: a price someone
+    changed by hand is the price, and redeploying is not a reason to revert it.
+    """
+
+    return [
+        ProductRead.model_validate(product) for product in list_products(session)
+    ]
+
+
+@router.post(
+    "/orders",
+    response_model=OrderRead,
+    status_code=201,
+    responses={
+        200: {"description": "idempotency key already used; this is that order"},
+        404: {"description": "the user or the product does not exist"},
+    },
+)
+def create_checkout_order(
+    data: OrderCreate,
+    response: Response,
+    session: Session = Depends(_session),
+) -> OrderRead:
+    """Create an order at the catalog price.
+
+    A replayed request (same ``idempotency_key``) answers ``200`` with the
+    order it already made, not a second one: a checkout page that retries after
+    a timeout must not bill the user twice.
+    """
+
+    try:
+        user = get_user(session, data.user_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        order, created = create_order(
+            session,
+            user_id=user.id,
+            product_code=data.product_code,
+            quantity=data.quantity,
+            idempotency_key=data.idempotency_key,
+        )
+    except BillingError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if not created:
+        response.status_code = 200
+    return OrderRead.model_validate(order)
+
+
+@router.get("/orders/{order_id}", response_model=OrderRead)
+def read_order(
+    order_id: str, session: Session = Depends(_session)
+) -> OrderRead:
+    """What the cashier page polls while it waits for a payment."""
+
+    try:
+        return OrderRead.model_validate(get_order(session, order_id))
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/orders/{order_id}/payment",
+    response_model=OrderRead,
+    responses={
+        404: {"description": "the order does not exist"},
+        409: {"description": "the order is not in a payable state"},
+    },
+)
+def pay_order(
+    order_id: str,
+    data: PaymentRequest,
+    session: Session = Depends(_session),
+) -> OrderRead:
+    """Settle a simulated payment.
+
+    The body can only say ``simulated``, and the stored provider says the same:
+    a demo payment is recorded as one, so nothing later has to guess whether
+    money actually moved. Paying twice changes nothing — callbacks are retried
+    by every provider in the world.
+    """
+
+    try:
+        return OrderRead.model_validate(mark_paid(session, order_id))
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PaymentNotAllowedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/orders/{order_id}/deliveries",
+    response_model=DeliveryRead,
+    status_code=201,
+    responses={
+        404: {"description": "the order does not exist"},
+        409: {"description": "unpaid, wrong owner, or no credit left"},
+    },
+)
+def deliver_order(
+    order_id: str,
+    data: DeliveryCreate,
+    session: Session = Depends(_session),
+) -> DeliveryRead:
+    """Record what the buyer got for a paid order.
+
+    This is the end of the chain: an interview session or a resume exists, and
+    this row is what connects it back to the order that paid for it. The kind
+    comes from the product, and the artifact must belong to the buyer, so a
+    delivery cannot be pointed at someone else's work.
+    """
+
+    try:
+        return DeliveryRead.model_validate(
+            add_delivery(session, order_id, data.ref_id)
+        )
+    except OrderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DeliveryNotAllowedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/users/{user_id}/orders", response_model=OrderHistory)
+def read_order_history(
+    user_id: str, session: Session = Depends(_session)
+) -> OrderHistory:
+    """The transaction ledger, plus what those transactions still buy.
+
+    ``remaining`` is derived from paid orders and deliveries, not stored: a
+    balance column drifts from its ledger the first time a write half-succeeds.
+    """
+
+    _or_404(lambda: get_user(session, user_id))
+    orders, quotas = order_history(session, user_id)
+
+    def line(kind: str) -> QuotaLine:
+        granted, used = quotas[kind]
+        return QuotaLine(granted=granted, used=used, remaining=max(0, granted - used))
+
+    return OrderHistory(
+        user_id=user_id,
+        orders=[OrderRead.model_validate(order) for order in orders],
+        resume=line("resume"),
+        interview=line("interview"),
+    )
 
 
 @router.get("/job-fit", response_model=list[JobFitAnalysisRead])
