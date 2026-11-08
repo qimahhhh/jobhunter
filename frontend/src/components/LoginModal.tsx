@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import AuthForm from "./AuthForm";
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  onDone: (name: string) => void;
+  onDone: (name: string, account: string) => void;
+  onNext: () => void;
 };
 
-export default function LoginModal({ open, onClose, onDone }: Props) {
-  const [tab, setTab] = useState<"login" | "register">("login");
-  const [account, setAccount] = useState("");
-  const [code, setCode] = useState("");
+export default function LoginModal({ open, onClose, onDone, onNext }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,11 +27,6 @@ export default function LoginModal({ open, onClose, onDone }: Props) {
 
   if (!open) return null;
 
-  const submit = () => {
-    if (!account.trim()) return;
-    onDone("李思远");
-  };
-
   return (
     <div className="scrim" onMouseDown={onClose}>
       <div
@@ -43,60 +37,23 @@ export default function LoginModal({ open, onClose, onDone }: Props) {
         ref={boxRef}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <button className="modal-x" aria-label="关闭" onClick={onClose}>
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-            <path d="M1 1l11 11M12 1L1 12" stroke="currentColor" strokeWidth="1.2" />
-          </svg>
-        </button>
-
-        <div className="eyebrow">Account</div>
-        <h2 id="auth-title">{tab === "login" ? "登录 Job Hunter" : "注册 Job Hunter"}</h2>
-        <p className="sub">登录后可上传简历与项目资料，建立你的求职档案。</p>
-
-        <div className="auth-tabs">
-          <button className={tab === "login" ? "on" : ""} onClick={() => setTab("login")}>
-            登录
-          </button>
-          <button className={tab === "register" ? "on" : ""} onClick={() => setTab("register")}>
-            注册
+        <div className="modal-head">
+          <span className="eyebrow">Account / 账户</span>
+          <button className="modal-x" aria-label="关闭" onClick={onClose} type="button">
+            ✕
           </button>
         </div>
 
-        <label className="field-label">手机号 / 邮箱</label>
-        <input
-          className="field"
-          autoFocus
-          value={account}
-          placeholder="you@example.com"
-          onChange={(e) => setAccount(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
-          }}
-        />
+        <h2 id="auth-title" className="h2">
+          登录或注册
+        </h2>
+        <p className="small mt-8">登录后可上传简历与项目资料，建立你的求职档案。</p>
 
-        <label className="field-label">验证码</label>
-        <div className="field code-row">
-          <input
-            value={code}
-            placeholder="6 位数字验证码"
-            onChange={(e) => setCode(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-            }}
-          />
-          <button className="code-btn">获取验证码</button>
+        <div className="mt-16">
+          <AuthForm onDone={(name, account) => onDone(name, account)} onNext={onNext} />
         </div>
 
-        <button className="btn primary auth-submit" disabled={!account.trim()} onClick={submit}>
-          进入 Job Hunter
-        </button>
-
-        <div className="or">或</div>
-        <div className="oauth">
-          <button>微信登录</button>
-          <button>GitHub 登录</button>
-        </div>
-        <p className="fine">继续即表示同意《服务条款》与《隐私政策》</p>
+        <p className="small mt-16">继续即表示同意《服务条款》与《隐私政策》</p>
       </div>
     </div>
   );

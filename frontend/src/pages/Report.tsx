@@ -1,5 +1,5 @@
-import Ticks from "../components/Ticks";
-import FlowRail from "../components/FlowRail";
+import Top from "../components/Top";
+import Band from "../components/Band";
 import { useProfile } from "../store";
 import { JOBS } from "../jobs";
 import type { Route } from "../App";
@@ -11,7 +11,7 @@ type Props = {
 const clamp = (n: number) => Math.max(1, Math.min(5, Number(n.toFixed(1))));
 
 export default function Report({ go }: Props) {
-  const { interview } = useProfile();
+  const { interview, unlocked } = useProfile();
   const answers = interview?.answers ?? [];
   const job = JOBS.find((j) => j.id === interview?.jobId) ?? JOBS[0];
 
@@ -83,94 +83,170 @@ export default function Report({ go }: Props) {
   const secs = interview?.seconds ?? 0;
 
   return (
-    <div className="screen">
-      <Ticks />
-      <div className="gridlines" />
+    <div className="shell" id="main">
+      <Top
+        onHome={() => go("home")}
+        back={{ label: "返回主页", onClick: () => go("home") }}
+      />
 
-      <header className="topbar">
-        <button className="back" onClick={() => go("home")}>
-          ← 返回主页
-        </button>
-      </header>
-
-      <div className="page-head">
-        <h1 className="page-title">面试报告</h1>
-        <p className="page-sub">
-          {job.company} · {job.title} · {answers.length} 题 · {Math.floor(secs / 60)} 分{" "}
-          {secs % 60} 秒
+      <main className="page">
+        <div className="eyebrow">
+          {job.company} · {job.title}
+        </div>
+        <h1 className="h1 mt-16">面试报告</h1>
+        <p className="lead">
+          {answers.length} 题 · {Math.floor(secs / 60)} 分 {secs % 60} 秒
         </p>
-      </div>
 
-      <div className="rep-dims">
-        {dims.map((d) => (
-          <div className="dim-row" key={d.name}>
-            <span className="nm">{d.name}</span>
-            <span className="tr">
-              <i style={{ width: `${(d.score / 5) * 100}%` }} />
-            </span>
-            <span className="sc">{noAnswer ? "—" : d.score.toFixed(1)}</span>
-            <span className="why">{d.why}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="rep-weak">
-        <div className="cap">薄弱点 · {weak.length}</div>
-        {weak.length ? (
-          weak.map((w) => (
-            <div className="weak" key={w.title}>
-              <b>{w.title}</b>
-              <span>{w.text}</span>
-              <div className="acts">
-                <button className="btn sm" onClick={() => go("interview")}>
-                  重练
-                </button>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="weak">
-            <b>没有明显短板</b>
-            <span>这场答得不错，可以换个岗位再来一场。</span>
-          </div>
-        )}
-      </div>
-
-      <div className="jfoot" style={{ marginTop: 26 }}>
-        <button className="btn primary" onClick={() => go("interview")}>
-          再练一次
-        </button>
-        <button className="btn" onClick={() => go("jobs")}>
-          换个岗位
-        </button>
-        <button className="btn" onClick={() => go("archive")}>
-          回到档案
-        </button>
-      </div>
-
-      <FlowRail
-        steps={[
-          { label: "选岗位与模式", state: "done" },
-          { label: "面试进行", state: "done" },
-          { label: "面试报告", state: "now", sub: noAnswer ? "本场无作答" : `${answers.length} 题 · 均分 ${total.toFixed(1)}` },
-          { label: "复盘重练", state: "next" },
-        ]}
-      >
-        <div className="sum">
-          <div>
-            <b>{noAnswer ? "—" : answers.length}</b>
-            <span>题数</span>
-          </div>
-          <div>
-            <b>{noAnswer ? "—" : total.toFixed(1)}</b>
-            <span>均分</span>
+        <div className="verdict mt-32">
+          <div className="v-num num">{noAnswer ? "—" : total.toFixed(1)}</div>
+          <div className="v-txt">
+            <div className="eyebrow">均分 / 5</div>
+            <p className="mt-8">
+              {noAnswer
+                ? "本场没有作答记录，无法评估。"
+                : `${answers.length} 题 · 均分 ${total.toFixed(1)}`}
+            </p>
           </div>
         </div>
-      </FlowRail>
-      <footer className="meta">
-        <span>AI Job Hunter / 2026</span>
-        <span>面试报告 · 依据可查</span>
-      </footer>
+
+        <div className="mt-32" style={{ borderTop: "1.5px solid var(--ink)" }}>
+          {dims.map((d) => (
+            <div
+              key={d.name}
+              style={{ padding: "16px 0", borderBottom: "1px solid var(--line)" }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(96px, 160px) minmax(60px, 1fr) 64px",
+                  alignItems: "center",
+                  gap: 20,
+                }}
+              >
+                <span className="h3" style={{ fontSize: 15 }}>
+                  {d.name}
+                </span>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "block",
+                    height: 1,
+                    background: "var(--hair)",
+                    position: "relative",
+                  }}
+                >
+                  <i
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: -1.5,
+                      display: "block",
+                      height: 4,
+                      width: noAnswer ? 0 : `${(d.score / 5) * 100}%`,
+                      background: "var(--ink)",
+                    }}
+                  />
+                </span>
+                <span className="num" style={{ textAlign: "right", fontSize: 22 }}>
+                  {noAnswer ? "—" : d.score.toFixed(1)}
+                </span>
+              </div>
+              {unlocked && (
+                <p className="small" style={{ marginTop: 6 }}>
+                  {d.why}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {unlocked ? (
+          <>
+            <div className="mt-48">
+              <div className="row between wrap" style={{ gap: 12 }}>
+                <h2 className="h2">薄弱点</h2>
+                <span className="eyebrow">{weak.length} 项</span>
+              </div>
+              <div className="mt-16" style={{ borderTop: "1.5px solid var(--ink)" }}>
+                {weak.length ? (
+                  weak.map((w) => (
+                    <div
+                      key={w.title}
+                      className="row between wrap"
+                      style={{
+                        gap: 20,
+                        padding: "18px 0",
+                        borderBottom: "1px solid var(--line)",
+                      }}
+                    >
+                      <div>
+                        <div className="h3">{w.title}</div>
+                        <div className="small">{w.text}</div>
+                      </div>
+                      <button
+                        className="pill sm"
+                        onClick={() => go("interview")}
+                        type="button"
+                      >
+                        重练
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div
+                    className="row between wrap"
+                    style={{
+                      gap: 20,
+                      padding: "18px 0",
+                      borderBottom: "1px solid var(--line)",
+                    }}
+                  >
+                    <div>
+                      <div className="h3">没有明显短板</div>
+                      <div className="small">这场答得不错，可以换个岗位再来一场。</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="row wrap mt-32" style={{ gap: 10 }}>
+              <button className="pill solid" onClick={() => go("interview")} type="button">
+                再练一次
+              </button>
+              <button className="pill" onClick={() => go("jobs")} type="button">
+                换个岗位
+              </button>
+              <button className="pill" onClick={() => go("archive")} type="button">
+                回到档案
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="panel y mt-32">
+            <div className="eyebrow">完整报告 · 未解锁</div>
+            <p className="h2 mt-8">五维评分已经给出，改法还在后面。</p>
+            <p className="small mt-8">
+              完整报告包含：每项评分的依据与改法、薄弱点清单、每道题的追问记录，以及可导出的一页总结。
+            </p>
+            <button className="pill solid mt-24" onClick={() => go("purchase")} type="button">
+              购买服务解锁全部 →
+            </button>
+          </div>
+        )}
+      </main>
+
+      <Band
+        step={4}
+        total={4}
+        label={`面试报告 · ${noAnswer ? "本场无作答" : `均分 ${total.toFixed(1)}`}`}
+        action={
+          unlocked
+            ? { label: "回到档案", onClick: () => go("archive") }
+            : { label: "解锁完整报告", onClick: () => go("purchase") }
+        }
+      />
     </div>
   );
 }

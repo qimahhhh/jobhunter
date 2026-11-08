@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import Ticks from "../components/Ticks";
-import FlowRail from "../components/FlowRail";
+import Top from "../components/Top";
+import Band from "../components/Band";
 import { useProfile } from "../store";
 import { JOBS, matchOf } from "../jobs";
 import { API_BASE, fitJob, type JobFit } from "../api";
@@ -59,208 +59,196 @@ export default function JobDetail({ go, jobId }: Props) {
   };
   const inCompare = compare.includes(job.id);
 
-  const skills = profile.projects.length ? 82 : 46;
-  const proj = profile.projects.length ? 71 : 34;
-  const exp = profile.stories.trim() ? 64 : 28;
-
   const softMet = m.met.filter(
     (label) => !job.reqs.some((r) => r.label === label && r.type === "hard")
   );
 
+  const verdict = m.fail.length
+    ? "硬性条件没过，先看差在哪"
+    : m.gap.length
+      ? "硬性条件全过，还缺一条证据"
+      : "全部对上，可以直接投";
+
+  const verifiedText =
+    job.verify === "ok" ? "已核验 · 仍在招" : job.verify === "dead" ? "来源失效 · 已关闭" : "待核验 · 未回访";
+
   return (
-    <div className="screen">
-      <Ticks />
-      <div className="gridlines" />
+    <div className="shell" id="main">
+      <Top
+        onHome={() => go("home")}
+        back={{ label: "返回名录", onClick: () => go("jobs") }}
+      />
 
-      <header className="topbar">
-        <button className="back" onClick={() => go("jobs")}>
-          ← 返回结果列表
-        </button>
-      </header>
-
-      <div className="jhead">
-        <h2>
-          {job.company} · {job.title}
-        </h2>
-        <div className="jhead-sub">
-          {job.city} · {job.salary} · {job.employment} · <b>{job.source}</b> ·{" "}
-          <i className={`dot ${job.verify}`} />{" "}
-          {job.verify === "ok" ? "已核验" : job.verify === "dead" ? "来源失效" : "待核验"} · 采集于{" "}
-          {job.collected}
+      <main className="page">
+        <div className="row between wrap" style={{ gap: 16 }}>
+          <div>
+            <div className="eyebrow">
+              {job.company} · {job.title}
+            </div>
+            <h1 className="h1 mt-16">{job.company} · {job.title}</h1>
+          </div>
+          <div className="row" style={{ gap: 8, alignSelf: "flex-end" }}>
+            <i
+              className={
+                job.verify === "ok" ? "dot" : job.verify === "dead" ? "dot dead" : "dot hollow"
+              }
+            />
+            <span className="fs-13 muted">{verifiedText}</span>
+          </div>
         </div>
-        <div className="fitline">
-          <b>{m.score}</b>
-          <span>AI 匹配</span>
-          <em className={status === "error" ? "err" : ""}>
-            {status === "loading"
-              ? "后端分析中…"
-              : status === "error"
-                ? `后端未连接（${API_BASE}），本地估算`
-                : "来自后端 /api/v1/job-fit"}
-          </em>
+
+        <p className="lead">
+          {job.city} · {job.salary} · {job.employment} · {job.source} · 采集于 {job.collected}
+        </p>
+
+        <div className="verdict mt-32">
+          <div className="v-num num">{m.score}</div>
+          <div className="v-txt">
+            <div className="eyebrow">匹配</div>
+            <p className="mt-8">{verdict}</p>
+            <div className="fit-status fs-13 mt-8">
+              {status === "loading" && "后端分析中……（当前为本地估算）"}
+              {status === "ok" && "来自后端 /api/v1/job-fit"}
+              {status === "error" && `后端未连接（${API_BASE}），本地估算`}
+            </div>
+          </div>
           {status === "error" && (
-            <button className="btn sm" onClick={() => setAttempt((n) => n + 1)}>
+            <button
+              className="pill sm"
+              style={{ marginLeft: "auto" }}
+              type="button"
+              onClick={() => setAttempt((n) => n + 1)}
+            >
               重试
             </button>
           )}
         </div>
-      </div>
 
-      <div className="krow">
-        {job.reqs
-          .filter((r) => r.type === "hard")
-          .map((r) => (
-            <div className={m.met.includes(r.label) ? "k ok" : "k no"} key={r.label}>
-              <i>{m.met.includes(r.label) ? "✓" : "✕"}</i>
-              {r.label}
-            </div>
-          ))}
-      </div>
+        <div className="reqs mt-24">
+          {job.reqs
+            .filter((r) => r.type === "hard")
+            .map((r) => {
+              const ok = m.met.includes(r.label);
+              return (
+                <span className={ok ? "tag" : "tag red"} key={r.label}>
+                  {ok ? "✓" : "✕"} {r.label}
+                </span>
+              );
+            })}
+        </div>
 
-      <div className="cols">
-        <div className="col">
-          <h5>满足 · {m.met.length}</h5>
-          <ul>
-            {m.met.map((x) => (
-              <li key={x}>
-                <em>✓</em>
-                {x}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="col miss">
-          <h5>缺证据 · {m.gap.length}</h5>
-          <ul>
-            {m.gap.length ? (
-              m.gap.map((x) => (
+        <div className="grid3 mt-32">
+          <div className="col-list">
+            <h4>满足 · {m.met.length}</h4>
+            <ul>
+              {m.met.map((x) => (
                 <li key={x}>
-                  <em>?</em>
-                  {x}（档案里没写）
-                </li>
-              ))
-            ) : (
-              <li>
-                <em>·</em>没有缺口
-              </li>
-            )}
-          </ul>
-        </div>
-        <div className="col miss">
-          <h5>不满足 · {m.fail.length}</h5>
-          <ul>
-            {m.fail.length ? (
-              m.fail.map((x) => (
-                <li key={x}>
-                  <em>✕</em>
+                  <em>✓</em>
                   {x}
                 </li>
-              ))
-            ) : (
-              <li>
-                <em>·</em>硬性条件全部满足
-              </li>
-            )}
-          </ul>
+              ))}
+              {!m.met.length && (
+                <li>
+                  <em>·</em>还没有可用的证据
+                </li>
+              )}
+            </ul>
+          </div>
+          <div className="col-list">
+            <h4>缺证据 · {m.gap.length}</h4>
+            <ul>
+              {m.gap.length ? (
+                m.gap.map((x) => (
+                  <li key={x}>
+                    <em>?</em>
+                    {x}（档案里没写）
+                  </li>
+                ))
+              ) : (
+                <li>
+                  <em>·</em>没有缺口
+                </li>
+              )}
+            </ul>
+          </div>
+          <div className="col-list">
+            <h4>不满足 · {m.fail.length}</h4>
+            <ul>
+              {m.fail.length ? (
+                m.fail.map((x) => (
+                  <li key={x}>
+                    <em>✕</em>
+                    {x}
+                  </li>
+                ))
+              ) : (
+                <li>
+                  <em>·</em>硬性条件全部满足
+                </li>
+              )}
+            </ul>
+          </div>
         </div>
-      </div>
 
-      {fit && (
-        <div className="fit-note">
-          <div className="cap">后端分析 · 置信度 {Math.round(fit.confidence * 100)}%</div>
-          <p>
-            命中 {fit.matchPoints.length} 个关键词，缺口 {fit.gaps.length} 个。
-          </p>
-          <p>
-            {fit.gaps.length
-              ? `优先补证据：${fit.gaps.join("、")}`
-              : "岗位关键词已全覆盖，接下来核对项目深度和结果。"}
-          </p>
-        </div>
-      )}
-
-      <div className="next">
-        <div className="cap">下一步</div>
-        <ul>
-          <li>
-            <b>简历强调</b>
-            {fit?.matchPoints.length
-              ? fit.matchPoints.slice(0, 3).join("、")
-              : softMet.length
-                ? softMet.slice(0, 3).join("、")
-                : "先把项目经历和技能证据补上"}
-          </li>
-          <li>
-            <b>面试准备</b>
-            大概率问：虚拟列表、首屏优化、组件抽象
-          </li>
-          <li>
-            <b>去补充</b>
-            {m.gap.length ? m.gap.slice(0, 2).join("、") : "暂时没有明显缺口"}
-          </li>
-        </ul>
-      </div>
-
-      <div className="jfoot">
-        <button className="btn primary" onClick={() => go("resume")}>
-          生成定制简历
-        </button>
-        <button className={inCompare ? "btn on" : "btn"} onClick={() => toggleCompare(job.id)}>
-          {inCompare ? "已加入对比" : "加入对比"}
-        </button>
-        {compare.length >= 2 && (
-          <button className="btn" onClick={() => go("compare")}>
-            去对比（{compare.length}）
-          </button>
+        {fit && (
+          <div className="panel mt-24">
+            <div className="eyebrow">后端分析 · 置信度 {Math.round(fit.confidence * 100)}%</div>
+            <p className="mt-8" style={{ fontSize: 15 }}>
+              命中 {fit.matchPoints.length} 个关键词，缺口 {fit.gaps.length} 个。
+            </p>
+            <p className="small mt-8">
+              {fit.gaps.length
+                ? `优先补证据：${fit.gaps.join("、")}`
+                : "岗位关键词已全覆盖，接下来核对项目深度和结果。"}
+            </p>
+          </div>
         )}
-        <button className="btn" onClick={() => go("jobs")}>
-          不考虑
-        </button>
-      </div>
 
-      <FlowRail
-        steps={[
-          { label: "设定条件", state: "done" },
-          { label: "搜索结果", state: "done" },
-          { label: "匹配详情", state: "now", sub: "可解释的匹配" },
-          { label: "岗位对比", state: "next" },
-          { label: "决策", state: "next" },
-        ]}
-      >
-        <div className="bars">
-          <div className="bar">
-            <div className="lb">
-              <span>技能</span>
-              <span>{skills}</span>
-            </div>
-            <div className="tr">
-              <i style={{ width: `${skills}%` }} />
-            </div>
+        <div className="grid3 mt-32">
+          <div className="col-list">
+            <h4>下一步 · 简历强调</h4>
+            <p style={{ fontSize: 14 }}>
+              {fit?.matchPoints.length
+                ? fit.matchPoints.slice(0, 3).join("、")
+                : softMet.length
+                  ? softMet.slice(0, 3).join("、")
+                  : "先把项目经历和技能证据补上"}
+            </p>
           </div>
-          <div className="bar">
-            <div className="lb">
-              <span>项目</span>
-              <span>{proj}</span>
-            </div>
-            <div className="tr">
-              <i style={{ width: `${proj}%` }} />
-            </div>
+          <div className="col-list">
+            <h4>下一步 · 面试准备</h4>
+            <p style={{ fontSize: 14 }}>大概率问：虚拟列表、首屏优化、组件抽象</p>
           </div>
-          <div className="bar">
-            <div className="lb">
-              <span>经历</span>
-              <span>{exp}</span>
-            </div>
-            <div className="tr">
-              <i style={{ width: `${exp}%` }} />
-            </div>
+          <div className="col-list">
+            <h4>下一步 · 去补充</h4>
+            <p style={{ fontSize: 14 }}>
+              {m.gap.length ? m.gap.slice(0, 2).join("、") : "暂时没有明显缺口"}
+            </p>
           </div>
         </div>
-      </FlowRail>
-      <footer className="meta">
-        <span>AI Job Hunter / 2026</span>
-        <span>简历 · 岗位 · 面试</span>
-      </footer>
+
+        <div className="row wrap mt-32" style={{ gap: 10 }}>
+          <button className="pill solid" onClick={() => go("resume")} type="button">
+            生成定制简历
+          </button>
+          <button className="pill" onClick={() => toggleCompare(job.id)} type="button">
+            {inCompare ? "已加入对比" : "加入对比"}
+          </button>
+          <button className="pill" onClick={() => go("interview")} type="button">
+            面这个
+          </button>
+          <button className="pill" onClick={() => go("jobs")} type="button">
+            不考虑
+          </button>
+        </div>
+      </main>
+
+      <Band
+        step={2}
+        total={4}
+        label={`只看这一个 · ${job.company}`}
+        action={{ label: "去模拟面试 →", onClick: () => go("interview") }}
+      />
     </div>
   );
 }

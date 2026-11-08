@@ -3,6 +3,48 @@
    不碰各页自己的布局。最后引入，用于覆盖前面的零散定义。
    ============================================================ */
 
+/* ---------- 0. 跳转主内容：键盘用户的第一个 Tab ----------
+   用 clip 隐藏而不是 left:-9999px —— 后者会把文档撑宽，
+   在 320px 下直接造成横向溢出（off-viewport FAIL）。 */
+.skip-link {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  height: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 18px;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  border: 1px solid var(--ink);
+  border-radius: var(--r-sm);
+  background: var(--ink);
+  color: #fff;
+  font: 600 12px/1 var(--font-body);
+  letter-spacing: 0.12em;
+}
+
 /* ---------- 1. 按钮：ghost 与 primary 并排时不再一高一低 ---------- */
 .btn {
   display: inline-flex;
@@ -135,10 +177,14 @@ button.q-esc {
   .home-cards {
     flex-wrap: wrap;
     gap: 18px;
+    /* 两侧给绝对定位的 44px 圆钮让位（30+44=74，内容从 60 起算更稳妥） */
+    padding: 0 60px;
   }
 
   .card {
-    width: min(322px, calc(50vw - 40px));
+    width: min(322px, 100%);
+    height: auto;
+    min-height: 368px;
   }
 
   .flow {
@@ -182,6 +228,11 @@ button.q-esc {
     width: 100%;
   }
 }
+
+/* ---------- 6b. 断点说明 ----------
+   内边距不用断点覆盖，改用 tokens 里的 clamp 连续收缩（见 tokens.css）：
+   这样不新增选择器重复定义，断点处也不会跳变。
+   窄屏的卡片避让写在下方 1180 断点的 .card 里。 */
 
 /* ---------- 7. 页面头统一：加一条章节线 ----------
    原来每页就是「32px 标题 + 一行灰字」，没有章节感。

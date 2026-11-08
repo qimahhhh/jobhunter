@@ -9,6 +9,8 @@
 .account {
   display: inline-flex;
   align-items: center;
+  /* 44px：手机端触控下限（登录态下头像只有 38px） */
+  min-height: 44px;
   gap: 12px;
   border: 0;
   background: none;
@@ -22,7 +24,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 40px;
+  /* 44px：手机端触控下限 */
+  height: 44px;
   padding: 0 20px;
   border: 1px solid var(--ink);
   border-radius: 999px;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import Ticks from "../components/Ticks";
-import FlowRail from "../components/FlowRail";
+import Top from "../components/Top";
+import Band from "../components/Band";
 import { useProfile } from "../store";
 import { JOBS } from "../jobs";
 import { buildInterview } from "../interview";
@@ -61,44 +61,70 @@ export default function Interview({ go, jobId }: Props) {
   }
 
   return (
-    <div className="screen">
-      <Ticks />
-      <div className="gridlines" />
+    <div className="shell" id="main">
+      <Top
+        onHome={() => go("home")}
+        back={{ label: "结束面试", onClick: () => go("home") }}
+      />
 
-      <header className="topbar">
-        <button className="back" onClick={() => go("home")}>
-          ← 结束面试
-        </button>
-      </header>
-
-      <div className="page-head">
-        <h1 className="page-title" style={{ fontSize: 24 }}>
+      <main className="page">
+        <div className="eyebrow">
           {job.company} · {job.title}
-        </h1>
-        <p className="page-sub">综合面试 · 模拟模式 · 上限 20 分钟</p>
-      </div>
+        </div>
 
-      <div className="iv-body">
-        {!finished && q && (
-          <div className="iv-card">
-            <div className="iv-meta">
-              <span>
-                <b>第 {index + 1} 题</b> · 共 {questions.length} 题
-              </span>
-              <span className="iv-time">已用 {mmss(seconds)}</span>
+        <div
+          className="row between wrap mt-24"
+          style={{ gap: 32, alignItems: "flex-end" }}
+        >
+          <div>
+            <div className="eyebrow">
+              第 {index + 1} 题 · 共 {questions.length} 题
             </div>
+            <div
+              className="num mt-8"
+              style={{ fontSize: "clamp(64px, 9vw, 120px)", lineHeight: 0.8 }}
+            >
+              {String(index + 1).padStart(2, "0")}
+              <span className="muted" style={{ fontSize: "0.32em", letterSpacing: 0 }}>
+                {" "}
+                / {String(questions.length).padStart(2, "0")}
+              </span>
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="eyebrow">已用时间</div>
+            <div
+              className="num mt-8"
+              style={{ fontSize: "clamp(44px, 6vw, 80px)", lineHeight: 0.85 }}
+            >
+              {mmss(seconds)}
+            </div>
+          </div>
+        </div>
 
-            <h3>{q.text}</h3>
+        <div className="row between wrap mt-16" style={{ gap: 12 }}>
+          <span className="small">综合面试 · 模拟模式 · 上限 20 分钟</span>
+          <span className="small">
+            考察点 · {Math.min(index, points.length)} / {points.length}
+          </span>
+        </div>
+
+        {!finished && q && (
+          <>
+            <h1 className="h1 mt-48">{q.text}</h1>
 
             {q.follow && (
-              <div className="iv-follow">
-                <div className="lb">Follow-up</div>
-                <p>{q.follow}</p>
+              <div className="row wrap mt-24" style={{ gap: 12, alignItems: "baseline" }}>
+                <span className="tag">Follow-up</span>
+                <span className="small" style={{ maxWidth: "34em" }}>
+                  {q.follow}
+                </span>
               </div>
             )}
 
             <textarea
-              className="iv-answer"
+              className="mt-32"
+              style={{ minHeight: 260 }}
               value={draft}
               spellCheck={false}
               placeholder="在这里作答，尽量说清楚：为什么这么做、你负责哪一步、最后是什么结果。"
@@ -107,48 +133,35 @@ export default function Interview({ go, jobId }: Props) {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
               }}
             />
-            <div className="iv-hint">⌘ / Ctrl + Enter 提交 · 支持语音（暂未开放）</div>
+            <div className="fs-11 muted mt-8">⌘ / Ctrl + Enter 提交 · 支持语音（暂未开放）</div>
 
-            <div className="iv-foot">
-              <button className="btn" onClick={skip}>
-                跳过这题
-              </button>
-              <button className="btn primary" onClick={submit}>
+            <div className="row wrap mt-24" style={{ gap: 10 }}>
+              {index + 1 < questions.length && (
+                <button className="pill" onClick={skip} type="button">
+                  跳过这题
+                </button>
+              )}
+              <button className="pill solid" onClick={submit} type="button">
                 {index + 1 >= questions.length ? "提交并生成报告" : "提交回答"}
               </button>
             </div>
-          </div>
-        )}
-      </div>
 
-      <FlowRail
-        steps={[
-          { label: "选岗位与模式", state: "done" },
-          {
-            label: "面试进行",
-            state: "now",
-            sub: `${Math.min(index + 1, questions.length)} / ${questions.length} 题 · ${mmss(seconds)}`,
-          },
-          { label: "面试报告", state: "next" },
-          { label: "复盘重练", state: "next" },
-        ]}
-      >
-        <div className="pts-wrap">
-          <div className="cap">考察点 · {Math.min(index, points.length)} / {points.length}</div>
-          <ul className="pts">
-            {points.map((p, i) => (
-              <li key={p} className={i < index ? "on" : ""}>
-                <i>{i < index ? "✓" : "·"}</i>
-                {p}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </FlowRail>
-      <footer className="meta">
-        <span>AI Job Hunter / 2026</span>
-        <span>模拟面试 · 不评分</span>
-      </footer>
+            <div className="row wrap mt-48" style={{ gap: 6 }}>
+              {points.map((p, i) => (
+                <span key={p} className={i < index ? "tag" : "tag mute"}>
+                  {i < index ? "✓" : "·"} {p}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+      </main>
+
+      <Band
+        step={3}
+        total={4}
+        label={`面试进行 · ${Math.min(index + 1, questions.length)} / ${questions.length} 题`}
+      />
     </div>
   );
 }

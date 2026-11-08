@@ -33,6 +33,17 @@ export type Profile = {
   skills?: string[];
   evidence?: string[];
   extraction?: { degraded: boolean; notes: string[] };
+  /** 后端抽取返回的岗位方向建议与信息缺口 */
+  recommendedRoles?: string[];
+  missingInformation?: string[];
+  resumeId?: string | null;
+  /** 后端用户 / 确认后的画像 / 生成的草稿版本 */
+  backendUserId?: string;
+  backendProfileId?: string;
+  draftResumeId?: string;
+  draftVersion?: number;
+  /** 后端抽取拆出的原始经历，用于确认画像与生成简历 */
+  experiences?: string[];
 };
 
 /** 面试结果：答题记录 + 用时，报告页从这里推导 */

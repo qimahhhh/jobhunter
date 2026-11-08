@@ -7,7 +7,8 @@ type Persisted = {
   profile?: Partial<Profile>;
   interview?: InterviewResult | null;
   compare?: string[];
-  user?: { name: string } | null;
+  user?: { name: string; account?: string } | null;
+  unlocked?: boolean;
 };
 
 function load(): Persisted {
@@ -31,8 +32,10 @@ type Ctx = {
   setInterview: (next: InterviewResult | null) => void;
   compare: string[];
   toggleCompare: (id: string) => void;
-  user: { name: string } | null;
-  setUser: (next: { name: string } | null) => void;
+  user: { name: string; account?: string } | null;
+  setUser: (next: { name: string; account?: string } | null) => void;
+  unlocked: boolean;
+  setUnlocked: (next: boolean) => void;
 };
 
 const ProfileContext = createContext<Ctx | null>(null);
@@ -46,17 +49,18 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }));
   const [interview, setInterview] = useState<InterviewResult | null>(restored.interview ?? null);
   const [compare, setCompare] = useState<string[]>(restored.compare ?? []);
-  const [user, setUser] = useState<{ name: string } | null>(restored.user ?? null);
+  const [user, setUser] = useState<{ name: string; account?: string } | null>(restored.user ?? null);
+  const [unlocked, setUnlocked] = useState<boolean>(restored.unlocked ?? false);
 
   // 任何一个状态变化都写回 localStorage，刷新页面不丢
   useEffect(() => {
     try {
-      const data: Persisted = { profile, interview, compare, user };
+      const data: Persisted = { profile, interview, compare, user, unlocked };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch {
       // 配额满 / 隐私模式：忽略，不影响当前会话
     }
-  }, [profile, interview, compare, user]);
+  }, [profile, interview, compare, user, unlocked]);
 
   const value = useMemo<Ctx>(
     () => ({
@@ -72,8 +76,10 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         ),
       user,
       setUser,
+      unlocked,
+      setUnlocked,
     }),
-    [profile, interview, compare, user]
+    [profile, interview, compare, user, unlocked]
   );
 
   return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>;

@@ -11,7 +11,7 @@ export type Question = {
 
 /**
  * 题量由档案动态决定：项目越多、缺证据的地方越多，问题越多。
- * 这里是前端 mock 规则，接后端后换成接口返回的 questions[]。
+ * `missingInformation` 来自后端抽取返回的信息缺口，不再是一套固定题目。
  */
 export function buildQuestions(p: Profile): Question[] {
   const qs: Question[] = [];
@@ -27,12 +27,26 @@ export function buildQuestions(p: Profile): Question[] {
     });
   });
 
+  // 后端抽取标出的信息缺口：期望城市、可实习时长这类简历里没写清的内容
+  (p.missingInformation ?? []).slice(0, 4).forEach((item, i) => {
+    const label = item.replace(/[。.!！?？]+$/, "").trim();
+    if (!label) return;
+    qs.push({
+      id: `missing-${i}`,
+      tag: "待确认",
+      title: `${label}？`,
+      basis: "简历里没有明确写这一项，模型把它标成了信息缺口。",
+      options: ["暂时不确定", "跳过这条"],
+      placeholder: "直接补充，例如「上海，可实习 3 个月」",
+    });
+  });
+
   if (p.resume) {
     qs.push({
       id: "resume-period",
       tag: "简历",
-      title: "简历上的实习时间是 2024.07 – 2024.09，对吗？",
-      basis: `从「${p.resume.name}」识别出 1 段实习，但起止时间只精确到月份。`,
+      title: "简历里的时间信息都准确吗？",
+      basis: `解析「${p.resume.name}」时只拿到了文件名和页数，具体起止时间需要你确认。`,
       options: ["对，就是这样", "不是，我改一下"],
       placeholder: "需要的话，写上准确的时间范围",
     });
@@ -49,6 +63,18 @@ export function buildQuestions(p: Profile): Question[] {
     });
   }
 
+  // 档案信息比较全时，至少留一道补充题，避免只问一题就结束
+  if (qs.length < 2) {
+    qs.push({
+      id: "extra",
+      tag: "补充",
+      title: "简历之外，还有哪段经历值得写进去？",
+      basis: "生成简历只能使用档案里的内容，这一段可以补上简历没覆盖的部分。",
+      options: ["没有更多了", "有一个项目", "有一段实习"],
+      placeholder: "一句话：做了什么、结果如何",
+    });
+  }
+
   if (!qs.length) {
     qs.push({
       id: "fallback",
@@ -60,5 +86,5 @@ export function buildQuestions(p: Profile): Question[] {
     });
   }
 
-  return qs.slice(0, 8);
+  return qs.slice(0, 10);
 }

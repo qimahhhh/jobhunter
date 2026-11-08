@@ -1,0 +1,12 @@
+﻿<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<style>html,body{margin:0;background:#fff}iframe{display:block;width:1440px;height:1100px;border:0}</style></head>
+<body><iframe id="f"></iframe>
+<script>
+var seed={interview:{jobId:"j1",seconds:486,answers:[
+{id:"a1",point:"React 组件抽象",text:"我做过一个校园二手平台，用 React 把重复列表拆成三个组件，首屏从 3.2s 降到 1.1s，做了虚拟列表和图片懒加载。"},
+{id:"a2",point:"性能优化",text:"先用 Lighthouse 定位，主要瓶颈是图片和长列表，做了懒加载、分页和骨架屏。"},
+{id:"a3",point:"团队协作",text:"和两个后端同学一起定接口，用 swagger 对齐字段，联调两周。"}]},user:{name:"rael",account:"zhang@example.com"}};
+try{localStorage.setItem("jobhunter.state.v1",JSON.stringify(seed));}catch(e){}
+var q=new URLSearchParams(location.search);
+document.getElementById("f").src="/#/"+(q.get("r")||"report");
+</script></body></html>

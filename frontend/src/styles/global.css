@@ -69,12 +69,17 @@ button {
 /* ---------- 顶部 ---------- */
 .topbar {
   display: flex;
-  align-items: flex-start;
+  /* 顶对齐会让 22px 的标志和 40px 的登录胶囊中心错位约 9px */
+  align-items: center;
   justify-content: space-between;
   min-height: 64px;
 }
 
 .logo {
+  display: inline-flex;
+  align-items: center;
+  /* 触控目标：桌面无感，手机端满足 44px */
+  min-height: 44px;
   font: 700 24px/1 var(--font-display);
   letter-spacing: -0.04em;
   color: var(--ink);
@@ -114,7 +119,7 @@ button {
   font: 500 var(--fs-micro) / 1 var(--font-mono);
   letter-spacing: 0.34em;
   text-transform: uppercase;
-  color: var(--ink-4);
+  color: var(--ink-3);
 }
 
 .display {
@@ -141,7 +146,7 @@ button {
   font-size: var(--fs-micro);
   letter-spacing: 0.34em;
   text-transform: uppercase;
-  color: var(--ink-4);
+  color: var(--ink-3);
 }
 
 .tagline i {
@@ -200,8 +205,9 @@ button {
   top: 50%;
   transform: translateY(-50%);
   z-index: 6;
-  width: 40px;
-  height: 40px;
+  /* 44px：手机端触控下限 */
+  width: 44px;
+  height: 44px;
   padding: 0;
   border-radius: 50%;
   border: 1px solid var(--ink);
@@ -243,10 +249,10 @@ button {
   align-items: center;
   padding-top: 12px;
   border-top: 1px solid var(--line);
-  font: 500 9px/1 var(--font-mono);
+  font: 500 var(--fs-micro) / 1 var(--font-mono);
   letter-spacing: 0.26em;
   text-transform: uppercase;
-  color: var(--ink-4);
+  color: var(--ink-3);
 }
 
 /* ---------- 主页 ---------- */
@@ -265,7 +271,7 @@ button {
 .card {
   position: relative;
   width: 322px;
-  height: 304px;
+  height: 368px;
   padding: 24px 24px 20px;
   display: flex;
   flex-direction: column;
@@ -301,18 +307,29 @@ button {
   border-bottom: 1px solid var(--line);
   font: 500 10px/1 var(--font-mono);
   letter-spacing: 0.16em;
-  color: var(--ink-4);
+  color: var(--ink-3);
 }
 
 .card .art {
   margin: 14px 0 0;
-  height: 98px;
+  height: 185px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.card h3 {
+/* 图形放大到 170px 高，描边必须保持 1.2px：
+   否则矢量随尺寸放大，线会变粗、和全站的细线语言脱节 */
+.card .art svg {
+  height: 100%;
+  width: auto;
+}
+
+.card .art svg * {
+  vector-effect: non-scaling-stroke;
+}
+
+.card h2 {
   margin: 16px 0 0;
   font-size: 20px;
   font-weight: 600;
@@ -330,7 +347,7 @@ button {
   margin-top: auto;
   font-size: 10px;
   letter-spacing: 0.22em;
-  color: var(--ink-4);
+  color: var(--ink-3);
 }
 
 .card:hover .go {

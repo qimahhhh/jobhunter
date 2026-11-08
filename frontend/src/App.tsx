@@ -4,7 +4,6 @@ import Intro from "./pages/Intro";
 import Home from "./pages/Home";
 import Upload from "./pages/Upload";
 import Resume from "./pages/Resume";
-import ResumeQA from "./pages/ResumeQA";
 import Jobs from "./pages/Jobs";
 import JobDetail from "./pages/JobDetail";
 import Archive from "./pages/Archive";
@@ -12,6 +11,7 @@ import Interview from "./pages/Interview";
 import Report from "./pages/Report";
 import Compare from "./pages/Compare";
 import ResumeDraft from "./pages/ResumeDraft";
+import Purchase from "./pages/Purchase";
 import Placeholder from "./pages/Placeholder";
 
 export type Route =
@@ -19,12 +19,12 @@ export type Route =
   | "home"
   | "upload"
   | "resume"
-  | "resume-qa"
   | "resume-draft"
   | "jobs"
   | "job"
   | "interview"
   | "report"
+  | "purchase"
   | "compare"
   | "archive";
 
@@ -33,12 +33,12 @@ const TITLES: Record<Route, string> = {
   home: "主页",
   upload: "上传 · 建立求职档案",
   resume: "简历 · 选择方式",
-  "resume-qa": "简历 · 确认信息",
   "resume-draft": "简历 · 草稿",
   jobs: "岗位 · 搜索结果",
   job: "岗位 · 匹配详情",
   interview: "面试 · 进行中",
   report: "面试 · 报告",
+  purchase: "购买 · 完整报告",
   compare: "岗位 · 对比",
   archive: "匹配档案",
 };
@@ -66,15 +66,13 @@ export default function App() {
   return (
     <ProfileProvider>
       {route === "intro" ? (
-        <Intro onEnter={() => go("home")} />
+        <Intro onEnter={() => go("home")} go={go} />
       ) : route === "home" ? (
         <Home go={go} />
       ) : route === "upload" ? (
         <Upload go={go} />
       ) : route === "resume" ? (
         <Resume go={go} />
-      ) : route === "resume-qa" ? (
-        <ResumeQA go={go} />
       ) : route === "resume-draft" ? (
         <ResumeDraft go={go} />
       ) : route === "jobs" ? (
@@ -93,6 +91,8 @@ export default function App() {
         <Interview go={go} jobId={jobId} />
       ) : route === "report" ? (
         <Report go={go} />
+      ) : route === "purchase" ? (
+        <Purchase go={go} />
       ) : route === "compare" ? (
         <Compare go={go} />
       ) : (

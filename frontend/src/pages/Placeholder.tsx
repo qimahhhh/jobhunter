@@ -1,4 +1,5 @@
-import Ticks from "../components/Ticks";
+import Top from "../components/Top";
+import Band from "../components/Band";
 import type { Route } from "../App";
 
 type Props = {
@@ -7,21 +8,19 @@ type Props = {
   go: (r: Route) => void;
 };
 
-export default function Placeholder({ title, onBack }: Props) {
+export default function Placeholder({ onBack }: Props) {
   return (
-    <div className="screen">
-      <Ticks />
-      <div className="gridlines" />
-      <header className="topbar">
-        <button className="back" onClick={onBack}>
-          ← 返回主页
-        </button>
-      </header>
-      <main className="ph-main">
-        <div className="overline">In progress</div>
-        <h1 className="ph-title">{title}</h1>
-        <p className="ph-note">这一页的线稿和关键帧已经定稿，实现排在这一轮之后。</p>
+    <div className="shell" id="main">
+      <Top
+        onHome={onBack}
+        back={{ label: "返回主页", onClick: onBack }}
+      />
+
+      <main className="page">
+        <h1 className="h1">这一页还在排期</h1>
       </main>
+
+      <Band step={0} total={4} label="尚未排期" />
     </div>
   );
 }

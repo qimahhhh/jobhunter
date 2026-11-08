@@ -6,5 +6,11 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
   base: mode === "production" ? "/jobhunter/" : "/",
-  server: { port: 5173, open: false },
+  server: {
+    port: 5173,
+    open: false,
+    watch: {
+      ignored: ["**/.impeccable/**", "**/dist/**", "**/shots/**", "**/.*", "**/.*/**"],
+    },
+  },
 }));
