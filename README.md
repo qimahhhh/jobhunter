@@ -5,7 +5,7 @@
 - `POST /api/v1/job-fit`：接收一次性画像和目标岗位，编排岗位校验、匹配分析、简历建议和面试题生成。
 - `POST /api/v1/job-matches`：基于已持久化的用户画像和岗位执行硬约束过滤，再生成匹配结果。
 
-当前代理行为由确定性实现模拟，稳定接口可直接替换为 MiMo 驱动的代理，而无需更改 API 契约。
+当前代理行为由确定性实现模拟，稳定接口可直接替换为 DeepSeek 驱动的代理，而无需更改 API 契约。
 
 ## 运行
 
@@ -114,9 +114,20 @@ python -m venv .venv
 ## 测试
 
 ```powershell
-$env:PYTHONPATH = "."
-python -m unittest discover -s backend/tests -v
+uv run python -m unittest discover -s backend/tests -v
 ```
+
+裸 `python` 在 Windows 上会指向系统解释器，而依赖装在项目的 `.venv` 里（Python 3.12），所以用 `uv run` 或 `.\\.venv\\Scripts\\python.exe`，否则会报 `No module named 'pydantic'`。
+
+## 端到端冒烟
+
+```powershell
+uv run python scripts\interview_smoke.py                                   # 内置样例 + 内存库，不写演示数据
+uv run python scripts\interview_smoke.py --answers 4 --interactive         # 手动回答
+uv run python scripts\interview_smoke.py --profile-id <id> --job-id <id>   # 指向真实数据库
+```
+
+它打印匹配的逐条 breakdown、面试计划，以及每一轮的“为什么问这句”。降级（模型编了需求、追问超限、调用失败）会以 `⚠` 行出现在输出里，而不是被平滑掉——这正是冒烟脚本要比单元测试先看的东西。
 
 ## 画像输入预处理
 
@@ -137,6 +148,6 @@ API 侧的 `POST /api/v1/profiles/extract/file` 接收同样的 PDF/DOCX 简历�
 ## 后续计划
 
 1. 岗位来源核验（真实来源已接入：Offer先生开放平台，见 `POST /api/v1/jobs/collect`）。
-2. 将模拟代理替换为 MiMo 客户端。
+2. 将模拟代理替换为 DeepSeek 客户端。
 3. 持久化来源快照和失败信息。
 4. 添加 React 工作台界面。
