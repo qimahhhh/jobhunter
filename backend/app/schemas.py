@@ -291,6 +291,13 @@ class FitReport(MatchResult):
     breakdown: list[RequirementScore] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    # Warnings, not verdicts. A missing ``must`` is already paid for inside
+    # ``score`` (its weight stays in the denominator while its coverage stays
+    # 0), so these two fields only describe the shortfall: what to prepare, and
+    # how much of the stated hard requirements was met. Neither changes the
+    # number, and a posting that states no ``must`` has nothing to fall short of.
+    must_gaps: list[str] = Field(default_factory=list)
+    must_coverage: float = Field(default=0.0, ge=0, le=1)
     # Where the requirement list came from: a model read of the posting, or a
     # punctuation split. The two are not equally trustworthy, and a score that
     # cannot say which one it is cannot be argued with.

@@ -262,6 +262,10 @@ class JobMatchRead(JobMatchCreate, MatchResult):
     confidence: float
     unknowns: list[str] = Field(default_factory=list)
     breakdown: list[RequirementScore] = Field(default_factory=list)
+    # The shortfall against the posting's stated musts. Reported so a user knows
+    # what to prepare, never subtracted from ``score``.
+    must_gaps: list[str] = Field(default_factory=list)
+    must_coverage: float = Field(default=0.0, ge=0, le=1)
     score_source: Literal["extracted", "heuristic"] = "heuristic"
     created_at: datetime
 

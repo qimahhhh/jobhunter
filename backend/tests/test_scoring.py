@@ -14,7 +14,7 @@ from backend.app.schemas import (
     ProfileInput,
     RequirementTerm,
 )
-from backend.app.scoring import score_fit
+from backend.app.scoring import rank_key, score_fit
 
 
 def _job(requirements: str = "熟悉 Python") -> JobInput:
@@ -151,6 +151,46 @@ class RequirementWeightingTest(unittest.TestCase):
         self.assertEqual(report.score_source, "heuristic")
         self.assertEqual(len(report.breakdown), 2)
         self.assertIn("sql", report.gaps)
+
+    def test_a_missing_must_is_reported_and_never_subtracted_again(self) -> None:
+        requirements = JobRequirementSet(
+            requirements=[
+                _requirement("熟悉 Python", kind="must", groups=[["Python"]]),
+                _requirement("熟悉 Go", kind="must", groups=[["Go"]]),
+                _requirement("有开源贡献", kind="nice", groups=[["Python"]]),
+            ]
+        )
+
+        report = score_fit(_profile(), _job(), requirements)
+
+        self.assertEqual(report.must_gaps, ["熟悉 Go"])
+        self.assertEqual(report.must_coverage, 0.5)
+        # (must 3x1 + must 3x0 + nice 1x1) / 7: the gap costs points once, by
+        # staying in the denominator with a coverage of zero.
+        self.assertEqual(report.score, 0.57)
+
+    def test_a_posting_without_musts_has_nothing_to_fall_short_of(self) -> None:
+        requirements = JobRequirementSet(
+            requirements=[_requirement("熟悉 Python", groups=[["Python"]])]
+        )
+
+        report = score_fit(_profile(), _job(), requirements)
+
+        self.assertEqual(report.must_gaps, [])
+        self.assertEqual(report.must_coverage, 1.0)
+
+
+class RankingTest(unittest.TestCase):
+    def test_the_score_decides_before_the_must_share(self) -> None:
+        # 70 with every must unmet still ranks above 65 with none missing. The
+        # gap already costs points inside the score, and letting the must share
+        # overrule it would turn the number back into a pass/fail check.
+        self.assertLess(rank_key(0.70, 0.20), rank_key(0.65, 1.0))
+
+    def test_the_must_share_decides_an_exact_tie(self) -> None:
+        # Rounding leaves ties behind; without this the order falls back to
+        # whenever each posting happened to be collected.
+        self.assertLess(rank_key(0.70, 1.0), rank_key(0.70, 0.60))
 
 
 class _CountingClient:

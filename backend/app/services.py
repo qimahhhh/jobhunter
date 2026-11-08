@@ -130,6 +130,8 @@ def _fit_report_to_job_match(
         confidence=report.confidence,
         unknowns=list(unknowns or []),
         breakdown=[entry.model_dump() for entry in report.breakdown],
+        must_gaps=list(report.must_gaps),
+        must_coverage=report.must_coverage,
         score_source=report.score_source,
     )
 

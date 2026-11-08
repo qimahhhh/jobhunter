@@ -202,6 +202,8 @@ def _unmeasured(
         breakdown=[],
         unknowns=[],
         notes=[],
+        must_gaps=[],
+        must_coverage=0.0,
         score_source=source,  # type: ignore[arg-type]
     )
 
@@ -316,6 +318,22 @@ def score_fit(
     partial = sum(1 for entry in measurable if entry.status == "partial")
     missing = sum(1 for entry in measurable if entry.status == "missing")
 
+    # The hard requirements, reported separately from the score. A posting can
+    # state a must the profile does not meet and still be worth applying to, so
+    # this is a list to read before writing the cover letter, not a verdict.
+    musts = [
+        entry for entry in scores if entry.kind == "must" and entry.status != "unknown"
+    ]
+    must_weight = sum(entry.weight for entry in musts)
+    must_coverage = (
+        round(sum(entry.weight * entry.coverage for entry in musts) / must_weight, 2)
+        if must_weight
+        else 1.0
+    )
+    must_gaps = [
+        entry.text for entry in musts if entry.status in ("missing", "partial")
+    ]
+
     summary = (
         f"Scored {len(measurable)} of {len(scores)} requirements against "
         f"{job.title}: {covered} covered, {partial} partly, {missing} missing"
@@ -339,5 +357,24 @@ def score_fit(
         breakdown=scores,
         unknowns=unknown,
         notes=[],
+        must_gaps=must_gaps,
+        must_coverage=must_coverage,
         score_source=source,  # type: ignore[arg-type]
     )
+
+
+def rank_key(score: float, must_coverage: float) -> tuple[float, float]:
+    """Order two scored postings: the score first, met musts only on a tie.
+
+    The score already pays for a missing must: its weight stays in the
+    denominator while its coverage stays 0. So this second term must never lift
+    a lower score above a higher one — that would turn "worth applying first"
+    back into "qualified or not", which is the question the score deliberately
+    does not answer.
+
+    What it does decide is the tie rounding leaves behind. Without it two
+    postings at the same 0.70 fall back to collection time, which says nothing
+    about fit and makes the order depend on when a collector happened to run.
+    """
+
+    return (-score, -must_coverage)

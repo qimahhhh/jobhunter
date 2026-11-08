@@ -36,10 +36,14 @@ _ADDED_PROFILE_COLUMNS = (
 # Columns ``job_matches`` grew once a score had to explain itself.
 _ADDED_MATCH_COLUMNS = (
     ("breakdown", "JSON DEFAULT '[]'"),
-    # Defaulted rather than merely added: a row written before the column
-    # existed holds NULL, and NULL does not validate as "extracted" or
-    # "heuristic". Its score really was a keyword coverage, so the default is
-    # also the truth.
+    ("must_gaps", "JSON DEFAULT '[]'"),
+    # A row written before the column existed holds NULL, which does not
+    # validate as a float; 0.0 is also true of it, since its score was a plain
+    # keyword coverage that never separated the must requirements out.
+    ("must_coverage", "FLOAT DEFAULT 0.0"),
+    # Defaulted rather than merely added: NULL does not validate as "extracted"
+    # or "heuristic", and a score from before this column really was a keyword
+    # coverage, so the default is also the truth.
     ("score_source", "VARCHAR(16) DEFAULT 'heuristic'"),
 )
 

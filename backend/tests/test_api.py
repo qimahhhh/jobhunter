@@ -228,6 +228,10 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
             [(row["text"], row["status"]) for row in match["breakdown"]],
             [("Python", "covered")],
         )
+        # The heuristic splitter cannot tell must from should, so it reports no
+        # shortfall instead of inventing one.
+        self.assertEqual(match["must_gaps"], [])
+        self.assertEqual(match["must_coverage"], 1.0)
 
         detail_response = await _request(
             "GET",

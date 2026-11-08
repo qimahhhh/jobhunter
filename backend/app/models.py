@@ -141,6 +141,11 @@ class JobMatch(Base):
     # explanation has to survive the request that produced it: a ranking read
     # back tomorrow without its breakdown is a number nobody can defend.
     breakdown: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    # The shortfall against the posting's stated musts, stored next to the match
+    # because it is what a user reads before applying. It is not part of the
+    # score, and only breaks a tie when two postings rank the same.
+    must_gaps: Mapped[list[str]] = mapped_column(JSON, default=list)
+    must_coverage: Mapped[float] = mapped_column(Float, default=0.0)
     score_source: Mapped[str] = mapped_column(String(16), default="heuristic")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

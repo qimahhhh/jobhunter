@@ -18,6 +18,7 @@ from .schemas import (
 from .schemas_hunt import JobHuntRequest, JobHuntResponse, JobHuntSkip
 from .schemas_resources import JobMatchCreate, JobMatchRead
 from .schemas_search import JobSearchRequest
+from .scoring import rank_key
 from .services import (
     ConstraintRejectedError,
     NotFoundError,
@@ -236,6 +237,13 @@ class JobHuntOrchestrator:
                 )
                 continue
             matches.append(JobMatchRead.model_validate(match))
+
+        # Best fit first. Candidates arrive in search order, which answers the
+        # query and says nothing about the profile, so a list of matches used to
+        # be ordered by something other than the number attached to each one.
+        # The tie-break only fires on an exact tie; it never lifts a lower score
+        # above a higher one.
+        matches.sort(key=lambda match: rank_key(match.score, match.must_coverage))
 
         events.append(
             _stage(
