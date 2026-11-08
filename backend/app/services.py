@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .agents import CareerAnalystAgent
+from .chunking import DEFAULT_MAX_CHUNK_TOKENS
 from .filters import (
     REMOTE_MARKERS,
     FilterOutcome,
@@ -16,6 +17,7 @@ from .filters import (
 )
 from .job_hunter import JobHunterAgent, dedupe_key
 from .job_sources import JobSource, OfferCampusSource, notices_to_jobs
+from .llm import LLMClient
 from .models import (
     Job,
     JobFitAnalysis,
@@ -26,12 +28,15 @@ from .models import (
     utc_now,
 )
 from .schemas import (
+    CitedChunk,
     EmploymentType,
     JobFitRequest,
     JobFitResponse,
     FitReport,
     JobInput,
     ProfileInput,
+    ResumeDraftContent,
+    ResumeDraftResponse,
 )
 from .schemas_resources import (
     JobCreate,
@@ -49,6 +54,11 @@ from .schemas_search import (
     JobQuery,
     JobSearchRequest,
     JobSearchResponse,
+)
+from .resume_draft import (
+    blocks_from_profile,
+    blocks_from_stored_chunks,
+    draft_resume,
 )
 
 
@@ -194,6 +204,55 @@ def get_resume(session: Session, resume_id: str) -> Resume:
     if resume is None:
         raise NotFoundError("resume not found")
     return resume
+
+
+def draft_resume_for_profile(
+    session: Session,
+    profile: UserProfile,
+    client: LLMClient,
+    max_chunk_tokens: int = DEFAULT_MAX_CHUNK_TOKENS,
+) -> ResumeDraftResponse:
+    """Draft a base resume from a stored profile and its source chunks.
+
+    Shared by ``POST /resumes/draft`` and the hunt pipeline: both entry points
+    have to build the same material, or the same profile would produce two
+    different resumes depending on which route was called. The caller resolves
+    the profile first so a missing id is still a 404 and never costs a model
+    call.
+    """
+
+    blocks = blocks_from_profile(profile.capabilities or {})
+    if profile.source_resume_id:
+        source = get_resume(session, profile.source_resume_id)
+        blocks.extend(
+            blocks_from_stored_chunks((source.content or {}).get("chunks", []))
+        )
+
+    result = draft_resume(blocks, client, max_chunk_tokens=max_chunk_tokens)
+    content = result.content or ResumeDraftContent()
+    return ResumeDraftResponse(
+        profile_id=profile.id,
+        headline=content.headline,
+        summary=content.summary,
+        experiences=content.experiences,
+        skills=content.skills,
+        education=content.education,
+        suggestions=content.suggestions,
+        cited_chunks=[
+            CitedChunk(
+                id=chunk.chunk_id,
+                source=chunk.source,
+                section=chunk.section,
+                text=chunk.text,
+            )
+            for chunk in result.cited
+        ],
+        unresolved_evidence=result.unresolved,
+        unverified_bullets=result.unverified_bullets,
+        unverified_fields=result.unverified_fields,
+        degraded=result.degraded,
+        notes=result.notes,
+    )
 
 
 def create_job(session: Session, data: JobCreate) -> Job:

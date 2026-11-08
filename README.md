@@ -40,6 +40,7 @@ python -m venv .venv
 | `POST /api/v1/jobs/ingest` | 采集器批量写入岗位，按 `公司 + 岗位名 + 城市` 去重：重复出现的岗位视为同一条，刷新薪资/地点/描述这些会变的字段并把 `last_seen_at` 更新为当前时间，首次来源保留为溯源。返回 `created` / `updated` 的 id 列表。 |
 | `POST /api/v1/jobs/collect` | 从 Offer先生校招数据开放平台拉取最新公告并入库：归一化后走 `/jobs/ingest` 同一条幂等合并路径，返回 `source` / `fetched` / `created` / `updated` 和跳过原因。未配置 API Key 返回 `503`，来源不可用返回 `502`。 |
 | `POST /api/v1/job-search` | Job Hunter Agent：在已入库岗位中检索并排序，返回 `candidates`（score、命中/缺失关键词、理由）和 `excluded`（被过滤的岗位及原因）。传 `profile_id` 时用画像的目标岗位、技能、城市、薪资下限补全查询，岗位类型**仅在画像里显式确认过**时才作为过滤条件；显式传入的字段优先。 |
+| `POST /api/v1/job-hunt` | 一条请求跑完「检索 → 匹配 → 可选简历草稿」：`search` 是 `/job-search` 的结果，`matches` 是对候选前 `match_top` 条（默认 3）逐个生成的**已落库**匹配结果，`skipped` 记下“过了检索但没过画像硬约束”的候选及原因，`with_resume` 为真时再调 `/resumes/draft` 同一套逻辑。`run_log` 给每个阶段耗时，`profile_id` 不存在返回 `404`。 |
 | `POST /api/v1/job-matches`、`GET /api/v1/job-matches/{match_id}` | 创建和查询匹配结果；创建前会按岗位类型、地点、薪资等硬约束过滤。 |
 
 资源接口对不存在的 ID 返回 `404`；岗位不满足硬约束时，`POST /api/v1/job-matches` 返回 `422`，其中包含 `rejections` 和 `unknowns`。上传抽取接口对不支持的文件类型返回 `415`、空文件返回 `400`、超过 20MB 返回 `413`、模型未配置返回 `503`。
@@ -53,6 +54,8 @@ python -m venv .venv
 **岗位去重**：`dedupe_key` 抹平大小写、空格、标点，以及城市写法（`北京市` = `北京`，`北京/上海` = `上海、北京`）和标题里的届别/急招类括号噪音（`AI 实习生（2026届）` = `AI 实习生`）。括号里是方向时不抹（`（算法）` ≠ `（工程）`）：误合并会丢一个真实岗位，误拆分至少看得见。它只用于 `/jobs/ingest` 这条采集路径，手动创建仍然一行一条。
 
 **岗位采集（Offer先生开放平台）**：`backend/app/job_sources.py` 里 `OfferCampusSource` 负责抓取，`notices_to_jobs` 负责归一化。一条公告覆盖多个岗位，按 `content` 的岗位名拆成多条岗位记录（没有岗位名就退化为公告级一条）；公告标签带「实习」的记 `internship`，其余记 `full_time`。来源 license 限定「仅限个人学习与研究，禁止批量落盘或再分发」，因此**公告正文（`richText`）永不入库**：只落企业、岗位、城市、学历、毕业年份这类事实字段和 `announcementUrl` 回链，正文需要时按链接回看原文。凭据配置 `OFFER_CAMPUS_API_KEY`（`.env`，模板见 `.env.example`），`OFFER_CAMPUS_API_BASE` 可覆盖默认地址。HTTP 客户端统一用 `httpx`：部分 Windows 主机的系统 TLS 栈不可用，系统 curl 走不通。采集由用户触发，不做定时爬取。
+
+**一条链路**：`POST /job-hunt` 把三个已有步骤串成一次请求，不新增任何计算。检索按**查询条件**过滤，匹配按**画像硬约束**过滤，两者允许不一致：不一致的候选进 `skipped` 并带原因，而不是让整条链路失败或悄悄消失。`with_resume` 默认关闭，因为那一步要花一次模型调用；没配 key 的部署仍能跑检索和匹配。
 
 ## 测试
 

@@ -16,20 +16,19 @@ from .db import get_session
 from .extraction_service import ResumeExtractionService
 from .job_sources import SourceConfigError, SourceUnavailableError
 from .llm import DeepSeekClient, LLMClient, LLMError
-from .orchestrator import JobFitOrchestrator, JobFitRunError
+from .orchestrator import JobFitOrchestrator, JobFitRunError, JobHuntOrchestrator
 from .schemas import (
-    CitedChunk,
     EmploymentType,
     JobFitFailureResponse,
     JobFitRequest,
     JobFitResponse,
-    ResumeDraftContent,
     ResumeDraftRequest,
     ResumeDraftResponse,
     ResumeExtractionRequest,
     ResumeExtractionResponse,
     ResumeSourceBundleRequest,
 )
+from .schemas_hunt import JobHuntRequest, JobHuntResponse
 from .schemas_resources import (
     CapabilityProfile,
     JobCreate,
@@ -53,11 +52,6 @@ from .schemas_search import (
     JobSearchRequest,
     JobSearchResponse,
 )
-from .resume_draft import (
-    blocks_from_profile,
-    blocks_from_stored_chunks,
-    draft_resume,
-)
 from .services import (
     ConflictError,
     ConstraintRejectedError,
@@ -69,6 +63,7 @@ from .services import (
     create_profile,
     create_resume,
     create_user,
+    draft_resume_for_profile,
     get_job,
     get_job_fit_analysis,
     get_job_match,
@@ -396,40 +391,8 @@ def draft_base_resume(
     """
 
     profile = _or_404(lambda: get_profile(session, data.profile_id))
-    blocks = blocks_from_profile(profile.capabilities or {})
-
-    if profile.source_resume_id:
-        source = _or_404(lambda: get_resume(session, profile.source_resume_id))
-        blocks.extend(
-            blocks_from_stored_chunks((source.content or {}).get("chunks", []))
-        )
-
-    result = draft_resume(
-        blocks, _llm_or_503(), max_chunk_tokens=data.max_chunk_tokens
-    )
-    content = result.content or ResumeDraftContent()
-    return ResumeDraftResponse(
-        profile_id=profile.id,
-        headline=content.headline,
-        summary=content.summary,
-        experiences=content.experiences,
-        skills=content.skills,
-        education=content.education,
-        suggestions=content.suggestions,
-        cited_chunks=[
-            CitedChunk(
-                id=chunk.chunk_id,
-                source=chunk.source,
-                section=chunk.section,
-                text=chunk.text,
-            )
-            for chunk in result.cited
-        ],
-        unresolved_evidence=result.unresolved,
-        unverified_bullets=result.unverified_bullets,
-        unverified_fields=result.unverified_fields,
-        degraded=result.degraded,
-        notes=result.notes,
+    return draft_resume_for_profile(
+        session, profile, _llm_or_503(), data.max_chunk_tokens
     )
 
 
@@ -517,6 +480,26 @@ def run_job_search(
     """
 
     return _or_404(lambda: search_jobs(session, data))
+
+
+@router.post("/job-hunt", response_model=JobHuntResponse)
+def run_job_hunt(
+    data: JobHuntRequest, session: Session = Depends(_session)
+) -> JobHuntResponse:
+    """Search, match and optionally draft a resume in one request.
+
+    The chain exists so nobody has to hand-carry ids between three calls: the
+    candidates of ``/job-search`` are matched here, and the matches are the jobs
+    the user would pick from. A candidate that search keeps but matching refuses
+    comes back in ``skipped`` with its reason, so the two steps disagreeing is
+    visible instead of looking like a bug.
+
+    ``with_resume`` costs one model call, so the client is only built when the
+    caller asks for it: a deployment without a key still serves the pipeline.
+    """
+
+    client = _llm_or_503() if data.with_resume else None
+    return _or_404(lambda: JobHuntOrchestrator(client).run(session, data))
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead)
