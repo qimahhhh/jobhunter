@@ -27,6 +27,23 @@ _TITLE_NOISE_RE = re.compile(
 )
 _LOCATION_SUFFIXES = ("市",)
 _DISPLAY_LIMIT = 5
+_EXPIRED_REASON = "岗位已被人工核验为过期，不再推荐"
+
+
+def _verification_warnings(job: Job) -> list[str]:
+    """What the posting's trust state means for the answer.
+
+    "Search found it" is not "it is still open". An unverified posting is
+    returned with a caveat rather than presented as available, and an
+    unreachable source is reported as unknown instead of rejected, because a
+    mirror being down says nothing about the job.
+    """
+
+    if job.verification_status in (None, "pending_verification", "unknown"):
+        return ["该岗位尚未核验：检索到不等于仍在招聘"]
+    if job.verification_status == "source_unavailable":
+        return ["来源暂时不可访问，岗位状态未知"]
+    return []
 
 
 def _fold(value: str) -> str:
@@ -161,6 +178,8 @@ def _candidate(
         missing=readable_terms(display_text, missing, _DISPLAY_LIMIT),
         reason=reason,
         warnings=list(warnings),
+        verification_status=job.verification_status,
+        last_verified_at=job.last_verified_at,
         collected_at=job.collected_at,
     )
 
@@ -185,6 +204,20 @@ class JobHunterAgent:
 
         for job in jobs:
             scanned += 1
+            if job.verification_status == "expired":
+                # Someone checked and the posting is closed. Recommending it
+                # would contradict the review that marked it, so it leaves the
+                # shortlist with a reason rather than disappearing.
+                excluded.append(
+                    JobExclusion(
+                        job_id=job.id,
+                        title=job.title,
+                        company=job.company,
+                        reasons=[_EXPIRED_REASON],
+                    )
+                )
+                continue
+
             outcome = hard_filter(
                 job,
                 requirements,
@@ -203,7 +236,9 @@ class JobHunterAgent:
                 )
                 continue
 
-            candidate = _candidate(job, query_terms, outcome.unknowns)
+            candidate = _candidate(
+                job, query_terms, [*outcome.unknowns, *_verification_warnings(job)]
+            )
             if candidate is None:
                 excluded.append(
                     JobExclusion(

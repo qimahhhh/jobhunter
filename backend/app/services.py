@@ -30,10 +30,11 @@ from .models import (
 from .schemas import (
     CitedChunk,
     EmploymentType,
+    FitReport,
     JobFitRequest,
     JobFitResponse,
-    FitReport,
     JobInput,
+    JobStatus,
     ProfileInput,
     ResumeDraftContent,
     ResumeDraftResponse,
@@ -41,6 +42,10 @@ from .schemas import (
 from .schemas_resources import (
     JobCreate,
     JobMatchCreate,
+    JobRead,
+    JobVerificationRejection,
+    JobVerificationRequest,
+    JobVerificationResponse,
     ProfileCreate,
     ResumeCreate,
     UserCreate,
@@ -312,6 +317,13 @@ def ingest_jobs(session: Session, data: JobIngestRequest) -> JobIngestResponse:
         job.salary_max = item.salary_max
         job.salary_period = item.salary_period
         job.last_seen_at = seen_at
+        if job.verification_status == "expired":
+            # The source is still publishing this posting, which contradicts the
+            # verdict that closed it. A verdict is bound to a moment, so it goes
+            # back to pending for a fresh look instead of hiding a re-opened
+            # posting indefinitely.
+            job.verification_status = "pending_verification"
+            job.last_verified_at = None
         known[key] = job
         updated.append(job.id)
 
@@ -361,11 +373,58 @@ def get_job(session: Session, job_id: str) -> Job:
 def list_jobs(
     session: Session,
     employment_type: EmploymentType | None = None,
+    verification_status: JobStatus | None = None,
 ) -> list[Job]:
     query = session.query(Job)
     if employment_type is not None:
         query = query.filter(Job.employment_type == employment_type)
+    if verification_status is not None:
+        query = query.filter(Job.verification_status == verification_status)
     return list(query.order_by(Job.created_at.desc()).all())
+
+
+def verify_jobs(
+    session: Session, data: JobVerificationRequest
+) -> JobVerificationResponse:
+    """Record a human's verdict on whether a posting is still open.
+
+    Verification is a claim with a time, not a flag: ``last_verified_at`` moves
+    only when an operator asserts something, so "active" can never appear
+    without a date behind it. Reverting to ``pending_verification`` clears the
+    date, because the previous claim is exactly what is being withdrawn.
+
+    One commit for the whole batch, so a crash halfway cannot leave five
+    verdicts applied and five not. An id that no longer exists is reported in
+    ``rejected`` instead of aborting the rest.
+    """
+
+    updated: list[Job] = []
+    rejected: list[JobVerificationRejection] = []
+    verified_at = utc_now()
+
+    for decision in data.decisions:
+        job = session.get(Job, decision.job_id)
+        if job is None:
+            rejected.append(
+                JobVerificationRejection(
+                    job_id=decision.job_id, reason="job not found"
+                )
+            )
+            continue
+        job.verification_status = decision.status
+        job.last_verified_at = (
+            None if decision.status == "pending_verification" else verified_at
+        )
+        updated.append(job)
+
+    session.commit()
+    for job in updated:
+        session.refresh(job)
+
+    return JobVerificationResponse(
+        updated=[JobRead.model_validate(job) for job in updated],
+        rejected=rejected,
+    )
 
 
 def _query_with_profile_defaults(
@@ -456,6 +515,11 @@ def _narrow_job_query(session: Session, query: JobQuery):
         )
         statement = statement.filter(or_(Job.location.is_(None), *patterns))
 
+    if query.verified_only:
+        # The one place where dropping a row is the request itself, so NULL is
+        # not spared here: "only verified openings" means exactly that.
+        statement = statement.filter(Job.verification_status == "active")
+
     return statement.order_by(Job.collected_at.desc())
 
 
@@ -471,9 +535,11 @@ def search_jobs(session: Session, data: JobSearchRequest) -> JobSearchResponse:
 
     jobs = _narrow_job_query(session, query).all()
     prefiltered_out = session.query(Job).count() - len(jobs)
+    if query.verified_only:
+        notes.append("verified_only：只检索已核验为在招的岗位，未核验和已过期的都不参与排序。")
     if prefiltered_out:
         notes.append(
-            f"SQL 预筛选排除了 {prefiltered_out} 条不满足岗位类型或地点的岗位，"
+            f"SQL 预筛选排除了 {prefiltered_out} 条不满足岗位类型、地点或核验状态的岗位，"
             "这部分只给数量、不逐条列出原因。"
         )
 

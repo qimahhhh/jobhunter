@@ -151,9 +151,45 @@ class JobRead(JobCreate):
     id: str
     verification_status: JobStatus
     collected_at: datetime
+    last_seen_at: datetime | None = None
     last_verified_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+# Statuses an operator is allowed to assert. ``unknown`` is left out on
+# purpose: it is what the system says when it has no evidence, not a verdict a
+# human can record.
+VerifiableStatus = Literal[
+    "active", "expired", "source_unavailable", "pending_verification"
+]
+
+
+class JobVerificationDecision(BaseModel):
+    job_id: str
+    status: VerifiableStatus
+
+
+class JobVerificationRequest(BaseModel):
+    """A batch of human verdicts, recorded in one commit.
+
+    Batched because the review step is done by a person with ten tabs open, and
+    one commit means a crash halfway cannot leave five verdicts applied and
+    five not. An id that no longer exists is reported per entry rather than
+    aborting the batch.
+    """
+
+    decisions: list[JobVerificationDecision] = Field(min_length=1)
+
+
+class JobVerificationRejection(BaseModel):
+    job_id: str
+    reason: str
+
+
+class JobVerificationResponse(BaseModel):
+    updated: list[JobRead] = Field(default_factory=list)
+    rejected: list[JobVerificationRejection] = Field(default_factory=list)
 
 
 class JobInputRead(JobInput):

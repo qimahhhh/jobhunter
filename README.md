@@ -36,7 +36,8 @@ python -m venv .venv
 | `POST /api/v1/profiles/extract/confirm` | 用户校对、修改抽取草稿后提交确认（人工确认节点），写入用户画像（重复确认更新同一份画像）；`recommended_roles` 存为 `suggested_roles`，用户保留或修改后的方向存为 `target_roles`，未修改时 `target_roles_source` 标为 `suggested`；草稿的 `missing_information` 一并落库；可带 `resume_id` 与 `evidence`，写入画像的 `source_resume_id` / `evidence`；用户不存在返回 `404`。 |
 | `POST /api/v1/resumes`、`GET /api/v1/resumes/{resume_id}` | 保存和查询来源类型及内容结构化的简历记录。 |
 | `POST /api/v1/resumes/draft` | 用已存画像（外加画像关联的原简历 chunks）生成**基础简历**草稿，不涉及 JD；每条要点带 `sources` 引用，找不到原文依据的要点会被删除，数字对不上原文会进 `notes`。 |
-| `POST /api/v1/jobs`、`GET /api/v1/jobs`、`GET /api/v1/jobs/{job_id}` | 创建和查询岗位；列表支持 `employment_type` 筛选。手动录入不去重：同一公司同名岗位可以是两个真实岗位。 |
+| `POST /api/v1/jobs`、`GET /api/v1/jobs`、`GET /api/v1/jobs/{job_id}` | 创建和查询岗位；列表支持 `employment_type`、`verification_status` 筛选。手动录入不去重：同一公司同名岗位可以是两个真实岗位。 |
+| `POST /api/v1/jobs/verify` | 批量记录人工核验结论（`active` / `expired` / `source_unavailable` / `pending_verification`）。只有人工给出结论时才会写 `last_verified_at`，改回 `pending_verification` 会同时清掉这个时间；整批一次提交，不存在的 id 进 `rejected` 而不影响其余。 |
 | `POST /api/v1/jobs/ingest` | 采集器批量写入岗位，按 `公司 + 岗位名 + 城市` 去重：重复出现的岗位视为同一条，刷新薪资/地点/描述这些会变的字段并把 `last_seen_at` 更新为当前时间，首次来源保留为溯源。返回 `created` / `updated` 的 id 列表。 |
 | `POST /api/v1/jobs/collect` | 从 Offer先生校招数据开放平台拉取最新公告并入库：归一化后走 `/jobs/ingest` 同一条幂等合并路径，返回 `source` / `fetched` / `created` / `updated` 和跳过原因。未配置 API Key 返回 `503`，来源不可用返回 `502`。 |
 | `POST /api/v1/job-search` | Job Hunter Agent：在已入库岗位中检索并排序，返回 `candidates`（score、命中/缺失关键词、理由）和 `excluded`（被过滤的岗位及原因）。传 `profile_id` 时用画像的目标岗位、技能、城市、薪资下限补全查询，岗位类型**仅在画像里显式确认过**时才作为过滤条件；显式传入的字段优先。 |
@@ -52,6 +53,18 @@ python -m venv .venv
 `services._narrow_job_query` 会把岗位类型、城市这类安全条件先下推到 SQL，但会同时放行 `NULL` 行：字段缺失的岗位交给 Agent 报成 unknown，而不是在 SQL 层被静默当成不匹配。代价是被 SQL 批量砍掉的岗位无法逐条给理由（要命名它们就得把它们读出来，也就失去下推的意义），所以用 `prefiltered_out` 只报数量，并在 `notes` 里说明。薪资需要跨周期换算，仍留在 Python 里比。
 
 **岗位去重**：`dedupe_key` 抹平大小写、空格、标点，以及城市写法（`北京市` = `北京`，`北京/上海` = `上海、北京`）和标题里的届别/急招类括号噪音（`AI 实习生（2026届）` = `AI 实习生`）。括号里是方向时不抹（`（算法）` ≠ `（工程）`）：误合并会丢一个真实岗位，误拆分至少看得见。它只用于 `/jobs/ingest` 这条采集路径，手动创建仍然一行一条。
+
+**核验状态真的参与判断**：`verification_status` 不只是个字段——Agent 会把 `expired` 的岗位从候选里剔除并写明原因；未核验 / 来源不可达的岗位仍然返回，但带 `warnings`（“检索到不等于仍在招聘”）；`verified_only=true` 时只检索 `active`。`last_verified_at` 只在人工给出结论时写入，所以一个 `active` 岗位一定对应一次具体的核验时刻。
+
+**采集与核验的命令行**：
+
+```powershell
+.\.venv\Scripts\python scripts\job_data.py collect --limit 40   # 拉一批真实岗位并入库
+.\.venv\Scripts\python scripts\job_data.py pending              # 打印待核验清单（含公告链接）
+.\.venv\Scripts\python scripts\job_data.py verify --ids <从上一步复制的前缀> --status active
+```
+
+`verify` 支持唯一 id 前缀，因为 `pending` 只打印前 12 位；前缀歧义会报错而不是猜一个。采集由人触发，不跑定时任务；来源 license 限制下公告正文不入库。
 
 **岗位采集（Offer先生开放平台）**：`backend/app/job_sources.py` 里 `OfferCampusSource` 负责抓取，`notices_to_jobs` 负责归一化。一条公告覆盖多个岗位，按 `content` 的岗位名拆成多条岗位记录（没有岗位名就退化为公告级一条）；公告标签带「实习」的记 `internship`，其余记 `full_time`。来源 license 限定「仅限个人学习与研究，禁止批量落盘或再分发」，因此**公告正文（`richText`）永不入库**：只落企业、岗位、城市、学历、毕业年份这类事实字段和 `announcementUrl` 回链，正文需要时按链接回看原文。凭据配置 `OFFER_CAMPUS_API_KEY`（`.env`，模板见 `.env.example`），`OFFER_CAMPUS_API_BASE` 可覆盖默认地址。HTTP 客户端统一用 `httpx`：部分 Windows 主机的系统 TLS 栈不可用，系统 curl 走不通。采集由用户触发，不做定时爬取。
 

@@ -22,6 +22,7 @@ from .schemas import (
     JobFitFailureResponse,
     JobFitRequest,
     JobFitResponse,
+    JobStatus,
     ResumeDraftRequest,
     ResumeDraftResponse,
     ResumeExtractionRequest,
@@ -43,6 +44,8 @@ from .schemas_resources import (
     ResumeRead,
     UserCreate,
     UserRead,
+    JobVerificationRequest,
+    JobVerificationResponse,
 )
 from .schemas_search import (
     JobCollectRequest,
@@ -74,6 +77,7 @@ from .services import (
     list_job_fit_analyses,
     list_jobs,
     search_jobs,
+    verify_jobs,
 )
 
 
@@ -415,11 +419,16 @@ def add_job(data: JobCreate, session: Session = Depends(_session)) -> JobRead:
 @router.get("/jobs", response_model=list[JobRead])
 def read_jobs(
     employment_type: EmploymentType | None = None,
+    verification_status: JobStatus | None = None,
     session: Session = Depends(_session),
 ) -> list[JobRead]:
     return [
         JobRead.model_validate(job)
-        for job in list_jobs(session, employment_type=employment_type)
+        for job in list_jobs(
+            session,
+            employment_type=employment_type,
+            verification_status=verification_status,
+        )
     ]
 
 
@@ -466,6 +475,24 @@ def collect_job_batch(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except SourceUnavailableError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post(
+    "/jobs/verify",
+    response_model=JobVerificationResponse,
+)
+def verify_job_statuses(
+    data: JobVerificationRequest, session: Session = Depends(_session)
+) -> JobVerificationResponse:
+    """Record human verdicts on whether postings are still open.
+
+    The step the plan calls "don't turn 'found a job' into 'still hiring'": a
+    posting is only ``active`` because someone looked at it, and the moment
+    they looked is stored with it. Reverting to ``pending_verification``
+    withdraws the claim and clears the date.
+    """
+
+    return verify_jobs(session, data)
 
 
 @router.post("/job-search", response_model=JobSearchResponse)

@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from .schemas import EmploymentType, SalaryPeriod
+from .schemas import EmploymentType, JobStatus, SalaryPeriod
 from .schemas_resources import JobCreate
 
 
@@ -23,6 +23,11 @@ class JobQuery(BaseModel):
     employment_type: EmploymentType | None = None
     salary_min: int | None = None
     salary_period: SalaryPeriod = "month"
+    # Opt-in and deliberately lossy: the user asks for "only what has been
+    # verified as open", so unverified rows are dropped rather than shown with
+    # a caveat. Off by default, because an empty demo is worse than a labelled
+    # one.
+    verified_only: bool = False
     limit: int = Field(default=10, ge=1, le=50)
 
 
@@ -39,6 +44,8 @@ class JobCandidate(BaseModel):
     missing: list[str] = Field(default_factory=list)
     reason: str
     warnings: list[str] = Field(default_factory=list)
+    verification_status: JobStatus | None = None
+    last_verified_at: datetime | None = None
     collected_at: datetime | None = None
 
 
