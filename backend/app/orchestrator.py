@@ -214,6 +214,7 @@ class JobHuntOrchestrator:
                         user_profile_id=request.profile_id,
                         job_id=candidate.job_id,
                     ),
+                    self.client,
                 )
             except ConstraintRejectedError as exc:
                 skipped.append(

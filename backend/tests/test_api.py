@@ -203,14 +203,18 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         job_response = await _request("POST", "/api/v1/jobs", _job_payload())
         self.assertEqual(job_response.status, 201)
 
-        match_response = await _request(
-            "POST",
-            "/api/v1/job-matches",
-            {
-                "user_profile_id": profile_id,
-                "job_id": job_response.json()["id"],
-            },
-        )
+        # Requirement extraction is an optional upgrade, not a prerequisite:
+        # with no client the match still gets a score, a breakdown and a reason,
+        # and it must say which of the two produced them.
+        with mock.patch("backend.app.routers._optional_client", return_value=None):
+            match_response = await _request(
+                "POST",
+                "/api/v1/job-matches",
+                {
+                    "user_profile_id": profile_id,
+                    "job_id": job_response.json()["id"],
+                },
+            )
 
         self.assertEqual(match_response.status, 201)
         match = match_response.json()
@@ -218,7 +222,12 @@ class ApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(match["match_points"], ["python"])
         self.assertEqual(match["gaps"], [])
         self.assertTrue(match["recommendation"])
-        self.assertEqual(match["confidence"], 0.5)
+        self.assertEqual(match["confidence"], 0.8)
+        self.assertEqual(match["score_source"], "heuristic")
+        self.assertEqual(
+            [(row["text"], row["status"]) for row in match["breakdown"]],
+            [("Python", "covered")],
+        )
 
         detail_response = await _request(
             "GET",

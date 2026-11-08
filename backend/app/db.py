@@ -33,6 +33,16 @@ _ADDED_PROFILE_COLUMNS = (
     ("source_resume_id", "VARCHAR(36)"),
 )
 
+# Columns ``job_matches`` grew once a score had to explain itself.
+_ADDED_MATCH_COLUMNS = (
+    ("breakdown", "JSON DEFAULT '[]'"),
+    # Defaulted rather than merely added: a row written before the column
+    # existed holds NULL, and NULL does not validate as "extracted" or
+    # "heuristic". Its score really was a keyword coverage, so the default is
+    # also the truth.
+    ("score_source", "VARCHAR(16) DEFAULT 'heuristic'"),
+)
+
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ai_job_hunter.db")
 engine_kwargs: dict[str, object] = {"future": True}
@@ -135,6 +145,24 @@ def _migrate_user_profiles(inspector: Any) -> None:
         )
 
 
+def _migrate_job_matches(inspector: Any) -> None:
+    """Add the columns that keep a stored score explainable.
+
+    A match computed before the column existed has no breakdown to show; the
+    JSON default gives it an empty one, so an old row reads as "nothing to
+    explain" instead of breaking the endpoint.
+    """
+
+    columns = _columns(inspector, "job_matches")
+    for name, definition in _ADDED_MATCH_COLUMNS:
+        if name in columns:
+            continue
+        with engine.begin() as connection:
+            connection.execute(
+                text(f"ALTER TABLE job_matches ADD COLUMN {name} {definition}")
+            )
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
     inspector = inspect(engine)
@@ -143,6 +171,8 @@ def init_db() -> None:
         _migrate_jobs(inspector)
     if "user_profiles" in tables:
         _migrate_user_profiles(inspector)
+    if "job_matches" in tables:
+        _migrate_job_matches(inspector)
 
 
 def get_session() -> Iterator[Session]:

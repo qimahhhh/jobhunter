@@ -13,6 +13,7 @@ from .schemas import (
     JobStatus,
     MatchResult,
     ProfileInput,
+    RequirementScore,
     SalaryPeriod,
 )
 
@@ -260,6 +261,8 @@ class JobMatchRead(JobMatchCreate, MatchResult):
     recommendation: str
     confidence: float
     unknowns: list[str] = Field(default_factory=list)
+    breakdown: list[RequirementScore] = Field(default_factory=list)
+    score_source: Literal["extracted", "heuristic"] = "heuristic"
     created_at: datetime
 
 

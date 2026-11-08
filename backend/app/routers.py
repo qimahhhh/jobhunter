@@ -598,8 +598,15 @@ def read_job(job_id: str, session: Session = Depends(_session)) -> JobRead:
 
 @router.post("/job-matches", response_model=JobMatchRead, status_code=201)
 def add_job_match(data: JobMatchCreate, session: Session = Depends(_session)) -> JobMatchRead:
+    """Score a stored posting against a stored profile.
+
+    The model client is optional and only buys the requirement extraction: a
+    deployment without a key scores by splitting the posting on punctuation,
+    and the stored match says which of the two produced the number.
+    """
+
     try:
-        match = create_job_match(session, data)
+        match = create_job_match(session, data, _optional_client())
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ConstraintRejectedError as exc:

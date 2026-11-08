@@ -44,13 +44,25 @@ python -m venv .venv
 | `POST /api/v1/jobs/collect` | 从 Offer先生校招数据开放平台拉取最新公告并入库：归一化后走 `/jobs/ingest` 同一条幂等合并路径，返回 `source` / `fetched` / `created` / `updated` 和跳过原因。未配置 API Key 返回 `503`，来源不可用返回 `502`。 |
 | `POST /api/v1/job-search` | Job Hunter Agent：在已入库岗位中检索并排序，返回 `candidates`（score、命中/缺失关键词、理由）和 `excluded`（被过滤的岗位及原因）。传 `profile_id` 时用画像的目标岗位、技能、城市、薪资下限补全查询，岗位类型**仅在画像里显式确认过**时才作为过滤条件；显式传入的字段优先。`query.expand=true` 时额外调用一次模型做查询改写。 |
 | `POST /api/v1/job-hunt` | 一条请求跑完「检索 → 匹配 → 可选简历草稿」：`search` 是 `/job-search` 的结果，`matches` 是对候选前 `match_top` 条（默认 3）逐个生成的**已落库**匹配结果，`skipped` 记下“过了检索但没过画像硬约束”的候选及原因，`with_resume` 为真时再调 `/resumes/draft` 同一套逻辑。`run_log` 给每个阶段耗时，`profile_id` 不存在返回 `404`。 |
-| `POST /api/v1/job-matches`、`GET /api/v1/job-matches/{match_id}` | 创建和查询匹配结果；创建前会按岗位类型、地点、薪资等硬约束过滤。 |
+| `POST /api/v1/job-matches`、`GET /api/v1/job-matches/{match_id}` | 创建和查询匹配结果；创建前会按岗位类型、地点、薪资等硬约束过滤。结果带 `breakdown`（逐条需求的权重、覆盖率、命中术语）与 `score_source`（`extracted` / `heuristic`）。 |
 
 资源接口对不存在的 ID 返回 `404`；岗位不满足硬约束时，`POST /api/v1/job-matches` 返回 `422`，其中包含 `rejections` 和 `unknowns`。上传抽取接口对不支持的文件类型返回 `415`、空文件返回 `400`、超过 20MB 返回 `413`、模型未配置返回 `503`。
 
 **画像的可追溯链**：抽取接口带 `user_id` → 返回 `resume_id`（`GET /api/v1/resumes/{resume_id}` 的 `content.chunks` 里是当时切好的每一段）→ 确认时把 `resume_id` 和 `evidence`（chunk id 列表）一起写进画像。这样 `GET /profiles/{id}` 配合 `GET /resumes/{resume_id}`，就能把一条结论还原成简历原文的某一段；不带 `user_id` 则保持无状态草稿，什么都不写。
 
 **基础简历是一个版本，不是一次响应**：`POST /resumes/draft` 会把草稿写成一条 `source_type="draft"` 的简历记录，`version` 按画像递增（同一用户的两个画像各自一条版本线），内容里每条要点带一个位置型 `bullet_id`（`e1-b2`）。这么做是因为定制版简历只能是**对某个已存版本打的补丁**：补丁说“改写 e1-b2”，就得有一个 e1-b2 能在之后的请求里指得到，所以基础版必须比它的响应活得久，后一次生成也不能覆盖前一次。引用的原文（`cited_chunks`）一并存进这条记录——画像可能来自结构化档案、根本没有原简历记录，那时这段文字就是校验改写后数字的唯一依据。校验没过（`degraded`）的草稿不落库：它是错误报告，给它一个版本号会让后面的补丁指向一个空简历。`/job-hunt` 里的同名步骤默认不落库，因为一次搜索不该在版本历史里留下一行没人打开过的简历。
+
+**匹配分数按需求算，不按关键词覆盖率**：`POST /job-matches` 的分数不是“命中关键词数 ÷ JD 关键词数”，而是每条需求一个覆盖率再按权重加权：`must` 3.0、`should` 2.0、`nice` 1.0，再乘维度系数（skill / experience 1.0，domain 0.8，education 0.6，language 0.5，other 0.2）。“熟悉 Python 或 Java”是一个检查项（命中任一即可），“熟悉 Python 和 Go”是两个——把“或”读成“和”是这类分数最常见的错。一条需求里的短语只命中一半（简历写了“系统”，需求是“分布式系统”）记为 partial 而不是 covered，因为半个词命中不能冒充“有这方面经验”。
+
+`breakdown` 逐条给出 `text`（JD 原文片段）、`kind`、`weight`、`coverage`、`status`、命中与缺失的术语，以及命中落在画像的哪一层（skills / summary / experiences）。`match_points` 和 `gaps` 由 breakdown 派生，而不是另外算一遍，所以面板上每一行都能点回到岗位的某一句话。
+
+`confidence` 终于有定义：可测量需求的权重占比（再乘上解析来源的折扣），意思是“这个分数的分母覆盖了多少岗位要求”，而不是“命中了几个词”。测不了的需求（如“沟通能力强”）进 `unknowns`，既不进分子也不进分母——信息缺失不等于不匹配。
+
+`must` 不满足不扣分：能不能投递是 `filters.hard_filter` 的布尔判断，分数只回答“值不值得优先投”。两件事混进一个数字，就既排不准序也说不清理由。
+
+**岗位需求只读一次**：`backend/app/jd_extract.py` 用一次模型调用把岗位描述读成需求项（`kind`、`dimension`、`terms`），结果按 `sha256(NFKC 后的要求 + 描述) + extractor_version` 缓存在 `job_requirement_sets`，同一岗位重复匹配不再调用模型；改了 prompt 就升版本号，旧缓存自然失效，而不是悄悄把两种需求混在一起。模型只被要求给出结构，从不被要求打分：权重来自 `scoring.DEFAULT_CONFIG`，所以同一对(画像, 岗位)算两次得到同一个数，即使模型把需求措辞得不一样。
+
+没有模型 key、模型报错、或模型没解析出可判定的需求时，退回按标点切分的启发式（每个术语一个检查项），响应里的 `score_source` 写明是 `extracted` 还是 `heuristic`。两种来源的可信度不同，一个说不清自己来源的分数没法讨论。
 
 **岗位召回**：`backend/app/job_hunter.py` 里的 `JobHunterAgent` 只做两件事——按查询里明确给出的硬约束过滤（没给的条件不启用，不会因为“没填薪资”而把岗位筛掉），再按关键词重合度排序。岗位名称命中计双份；“查不到”和“没测量”分开表达：查询没有关键词时 score 记为 0.0 并在 `notes` 里说明，而不是假装不匹配。Agent 筛掉的岗位全部进 `excluded` 并带原因。
 

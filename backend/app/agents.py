@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import re
 
-from .schemas import FitReport, InterviewQuestion, JobInput, JobVerification, ProfileInput
+from .schemas import (
+    FitReport,
+    InterviewQuestion,
+    JobInput,
+    JobRequirementSet,
+    JobVerification,
+    ProfileInput,
+)
 
 
 _CJK_RUN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]+")
@@ -133,23 +140,6 @@ def readable_terms(
     return _display_terms(value, terms, limit)
 
 
-def _unmeasured_report(reason: str, recommendation: str) -> FitReport:
-    """Zero score that says nothing was measured instead of "nothing matches"."""
-
-    return FitReport(
-        summary=(
-            f"Keyword analysis could not run: {reason}. "
-            "The 0.0 score means nothing was measured, not that the required "
-            "skills are missing."
-        ),
-        score=0.0,
-        match_points=[],
-        gaps=[],
-        recommendation=recommendation,
-        confidence=0.0,
-    )
-
-
 class JobVerifierAgent:
     name = "job_verifier"
 
@@ -169,60 +159,25 @@ class JobVerifierAgent:
 
 
 class CareerAnalystAgent:
+    """Score a posting against a profile, and say why.
+
+    The scoring itself lives in ``scoring``; this class is only the stage
+    boundary the orchestrator knows about. The import is deferred on purpose:
+    ``scoring`` reads the term helpers from this module, so importing it at
+    module scope would make the two files circular.
+    """
+
     name = "career_analyst"
 
-    def run(self, profile: ProfileInput, job: JobInput) -> FitReport:
-        profile_text = " ".join(
-            [profile.summary, *profile.skills, *profile.experiences]
-        )
-        profile_terms = _terms(profile_text)
-        job_terms = _terms(job.requirements)
+    def run(
+        self,
+        profile: ProfileInput,
+        job: JobInput,
+        requirements: JobRequirementSet | None = None,
+    ) -> FitReport:
+        from .scoring import score_fit
 
-        # An empty term set means the text could not be parsed, which is a very
-        # different answer from "parsed fine, no overlap" - never report it as
-        # full keyword coverage.
-        if not job_terms:
-            return _unmeasured_report(
-                f"the requirements of {job.title} contain no comparable terms",
-                "Rewrite the requirements as concrete skills, tools or methods "
-                "before relying on this score.",
-            )
-        if not profile_terms:
-            return _unmeasured_report(
-                "the profile contains no comparable terms",
-                "Add concrete skills to the profile summary before relying on "
-                "this score.",
-            )
-
-        overlap = profile_terms & job_terms
-        gaps = job_terms - profile_terms
-        score = round(len(overlap) / len(job_terms), 2)
-
-        match_points = _display_terms(job.requirements, overlap)
-        gap_output = _display_terms(job.requirements, gaps)
-
-        return FitReport(
-            summary=(
-                f"Initial result: the profile and {job.title} have "
-                f"{len(overlap)} matched keyword units and {len(gaps)} unmatched ones. "
-                "This prepares a job search checklist and is not a hiring probability."
-            ),
-            score=score,
-            match_points=match_points,
-            gaps=gap_output,
-            recommendation=(
-                "Prioritize quantified evidence for: "
-                + ", ".join(gap_output)
-                + "."
-                if gap_output
-                else "All explicit job keywords are covered; validate project depth and results manually."
-            ),
-            confidence=(
-                0.0
-                if not overlap
-                else round(min(0.9, 0.4 + 0.1 * len(overlap)), 2)
-            ),
-        )
+        return score_fit(profile, job, requirements)
 
 
 class ContentAgent:

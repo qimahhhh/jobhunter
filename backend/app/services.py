@@ -16,6 +16,7 @@ from .filters import (
     location_tokens,
 )
 from .job_hunter import JobHunterAgent, dedupe_key
+from .jd_extract import requirements_for
 from .job_probe import JobProber
 from .job_query import expand_query
 from .job_sources import JobSource, OfferCampusSource, notices_to_jobs
@@ -128,6 +129,8 @@ def _fit_report_to_job_match(
         recommendation=report.recommendation,
         confidence=report.confidence,
         unknowns=list(unknowns or []),
+        breakdown=[entry.model_dump() for entry in report.breakdown],
+        score_source=report.score_source,
     )
 
 
@@ -785,7 +788,20 @@ def search_jobs(
     )
 
 
-def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
+def create_job_match(
+    session: Session,
+    data: JobMatchCreate,
+    client: LLMClient | None = None,
+) -> JobMatch:
+    """Score one stored posting against one stored profile.
+
+    ``client`` is optional and only buys the requirement extraction. Passing
+    ``None`` still produces a score, a breakdown and a reason for every line —
+    the requirements are then split on punctuation instead of read by a model,
+    and ``score_source`` says so. A deployment without a key therefore keeps
+    working, and a result never has to be guessed at afterwards.
+    """
+
     profile = get_profile(session, data.user_profile_id)
     job = get_job(session, data.job_id)
 
@@ -793,6 +809,10 @@ def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
     outcome = hard_filter(job, requirements)
     if not outcome.passed:
         raise ConstraintRejectedError(outcome)
+
+    requirement_set, requirement_note = requirements_for(
+        session, job.requirements, job.description, client
+    )
 
     capabilities = profile.capabilities
     report = CareerAnalystAgent().run(
@@ -812,7 +832,9 @@ def create_job_match(session: Session, data: JobMatchCreate) -> JobMatch:
             source_name=job.source_name,
             source_url=job.source_url,
         ),
+        requirement_set,
     )
+    report.notes.append(requirement_note)
     match = _fit_report_to_job_match(
         report,
         id=_id(),

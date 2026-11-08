@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -137,6 +137,37 @@ class JobMatch(Base):
     recommendation: Mapped[str] = mapped_column(Text)
     confidence: Mapped[float] = mapped_column(Float)
     unknowns: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # What each requirement contributed. Stored with the match because the
+    # explanation has to survive the request that produced it: a ranking read
+    # back tomorrow without its breakdown is a number nobody can defend.
+    breakdown: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    score_source: Mapped[str] = mapped_column(String(16), default="heuristic")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class StoredRequirementSet(Base):
+    """A posting's requirements, read once and keyed by its text.
+
+    Keyed by hash rather than by job id because the same posting appears more
+    than once (re-posted, mirrored, collected twice), and paying a model call
+    for each copy would turn reproducibility into an accident of timing.
+
+    ``extractor_version`` is part of the key on purpose: a new prompt makes
+    different requirements, and silently reusing the old ones would leave the
+    cache looking trustworthy while the code it describes has changed.
+    """
+
+    __tablename__ = "job_requirement_sets"
+    __table_args__ = (
+        UniqueConstraint(
+            "jd_hash", "extractor_version", name="ux_job_requirement_sets_text"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    jd_hash: Mapped[str] = mapped_column(String(64), index=True)
+    extractor_version: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
