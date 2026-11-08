@@ -176,6 +176,42 @@ class StoredRequirementSet(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class InterviewSession(Base):
+    """One mock interview: what it planned, what it asked, what was answered.
+
+    The requirement set is copied in rather than referenced. Replaying a
+    finished interview must not change when the extractor prompt changes and
+    the cache is rebuilt, and "what was it asked against" is part of the record.
+
+    ``turns`` always ends with the question currently on screen, unanswered.
+    Storing it before the answer arrives is what makes "answer this" an
+    operation on the session rather than the client echoing a question back.
+    """
+
+    __tablename__ = "interview_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_profile_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("user_profiles.id", ondelete="CASCADE"),
+        index=True,
+    )
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("jobs.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="in_progress")
+    max_turns: Mapped[int] = mapped_column(default=8)
+    requirements: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    plan: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    turns: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    finish_reason: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
 class JobFitAnalysis(Base):
     __tablename__ = "job_fit_analyses"
 

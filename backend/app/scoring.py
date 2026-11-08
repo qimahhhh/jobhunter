@@ -117,12 +117,25 @@ def _alternative_coverage(alternative: str, layers: _Layers) -> tuple[float, str
     return best, best_layer
 
 
+def requirement_weight(
+    requirement: JobRequirement, config: ScoringConfig = DEFAULT_CONFIG
+) -> float:
+    """How much one requirement counts, from its kind and dimension.
+
+    Shared with the interview agent, which picks what to ask by the same order
+    of importance a score would use — two places deciding "which requirement
+    matters most" differently would be two products.
+    """
+
+    return config.kind_weight.get(requirement.kind, 1.0) * (
+        config.dimension_multiplier.get(requirement.dimension, 1.0)
+    )
+
+
 def _score_requirement(
     requirement: JobRequirement, layers: _Layers, config: ScoringConfig
 ) -> RequirementScore:
-    weight = config.kind_weight.get(requirement.kind, 1.0) * (
-        config.dimension_multiplier.get(requirement.dimension, 1.0)
-    )
+    weight = requirement_weight(requirement, config)
 
     coverages: list[float] = []
     matched: set[str] = set()

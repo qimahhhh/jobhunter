@@ -59,10 +59,18 @@ from .schemas_search import (
     JobSearchRequest,
     JobSearchResponse,
 )
+from .schemas_interview import (
+    InterviewAnswerRequest,
+    InterviewSessionRead,
+    InterviewStartRequest,
+)
 from .services import (
     ConflictError,
     ConstraintRejectedError,
+    InterviewFinishedError,
+    InterviewNotPossibleError,
     NotFoundError,
+    answer_interview,
     collect_jobs,
     create_job,
     create_job_fit_analysis,
@@ -82,7 +90,9 @@ from .services import (
     list_job_fit_analyses,
     list_jobs,
     probe_jobs,
+    read_interview,
     search_jobs,
+    start_interview_session,
     verify_jobs,
 )
 
@@ -624,6 +634,79 @@ def add_job_match(data: JobMatchCreate, session: Session = Depends(_session)) ->
 @router.get("/job-matches/{match_id}", response_model=JobMatchRead)
 def read_job_match(match_id: str, session: Session = Depends(_session)) -> JobMatchRead:
     return JobMatchRead.model_validate(_or_404(lambda: get_job_match(session, match_id)))
+
+
+@router.post(
+    "/interviews",
+    response_model=InterviewSessionRead,
+    status_code=201,
+    responses={
+        404: {"description": "the profile or the job does not exist"},
+        422: {"description": "the posting has nothing to interview against"},
+        503: {"description": "model client is not configured"},
+    },
+)
+def start_interview(
+    data: InterviewStartRequest, session: Session = Depends(_session)
+) -> InterviewSessionRead:
+    """Plan a mock interview and return its first question.
+
+    The model plans which requirements to verify, but the plan is stored before
+    any answer exists: it is what later turns are allowed to deviate from, and a
+    session that never recorded its intention could not explain why it asked
+    what it asked.
+
+    A model client is required here, unlike matching: the next question depends
+    on what the candidate just said, which no deterministic rule can read.
+    """
+
+    try:
+        return start_interview_session(session, data, _llm_or_503())
+    except InterviewNotPossibleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/interviews/{interview_id}/answers",
+    response_model=InterviewSessionRead,
+    responses={
+        404: {"description": "the session does not exist"},
+        409: {"description": "the session is over, or has no question to answer"},
+    },
+)
+def answer_interview_question(
+    interview_id: str,
+    data: InterviewAnswerRequest,
+    session: Session = Depends(_session),
+) -> InterviewSessionRead:
+    """Record one answer and return the next question, or the ending.
+
+    The answer belongs to the question currently on screen — the session stores
+    the unanswered turn, so a caller cannot answer something they were never
+    asked by inventing a question id.
+
+    The turn budget and the one-follow-up-per-requirement limit are enforced in
+    code, not asked of the model: a model that cannot satisfy itself would keep
+    probing until the candidate gave up.
+    """
+
+    try:
+        return answer_interview(session, interview_id, data, _llm_or_503())
+    except InterviewFinishedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/interviews/{interview_id}", response_model=InterviewSessionRead)
+def read_interview_session(
+    interview_id: str, session: Session = Depends(_session)
+) -> InterviewSessionRead:
+    """Replay a session: the plan, every turn, and what is still uncovered."""
+
+    return _or_404(lambda: read_interview(session, interview_id))
 
 
 @router.get("/job-fit", response_model=list[JobFitAnalysisRead])
