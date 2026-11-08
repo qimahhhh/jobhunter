@@ -21,15 +21,22 @@ Two guards matter more than they look:
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .llm import LLMClient
 from .schemas import JobInput, JobRequirement, ProfileInput
-from .schemas_interview import InterviewPlan, InterviewTarget, InterviewTurn
+from .schemas_interview import (
+    InterviewEvaluation,
+    InterviewPlan,
+    InterviewTarget,
+    InterviewTurn,
+    RequirementVerdict,
+)
 from .scoring import requirement_weight
 
 # One follow-up per requirement. A model that may probe twice will spend three
@@ -206,9 +213,12 @@ def _profile_lines(profile: ProfileInput) -> str:
     return "\n".join(lines)
 
 
-def _transcript(turns: Sequence[InterviewTurn]) -> str:
+def _transcript(
+    turns: Sequence[InterviewTurn], limit: int | None = _TRANSCRIPT_LIMIT
+) -> str:
+    shown = turns if limit is None else turns[-limit:]
     lines: list[str] = []
-    for turn in turns[-_TRANSCRIPT_LIMIT:]:
+    for turn in shown:
         label = "追问" if turn.kind == "probe" else "提问"
         lines.append(f"[{turn.index}] {label}（{turn.requirement_id}）：{turn.question}")
         if turn.answer is not None:
@@ -338,4 +348,181 @@ def decide(
         requirements,
         turns,
         "面试官给出的动作不可用（越界需求、重复追问或空理由），已按需求权重选了下一题",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reviewing the answers afterwards
+# ---------------------------------------------------------------------------
+
+EVALUATOR_VERSION = "iv-eval-v1"
+
+EVALUATION_PROMPT = """你是面试复盘者。根据整场问答，逐条判定候选人对每条需求的回答情况。
+
+规则：
+1. 只能使用给定的 requirement_id，不要新增需求，也不要评价岗位或公司。
+2. 每条需求给一个 verdict：
+   - answered：答到了核心，有具体做法、参数或结果；
+   - surface：提到过，但停在概念层面（“用过”“了解”），没有可验证的细节；
+   - unanswered：这场面试没有问到，或回答与该需求无关。
+3. answered 必须给 evidence：从候选人回答里原样摘一句，不许改写、不许拼接、不许翻译。
+   摘不出原句就不要判 answered——摘不出原句的判定会被系统降级。
+4. gap 写还差什么；suggestion 写一条可执行的动作，例如“补一个含分片与失败重试的具体设计”。
+5. strengths 2-3 条，每条也要能指回原句；suggestions 3-5 条，按对拿到面试的影响排序。
+6. 不要给分数、百分比或等级，只给这三档判定。
+7. 只返回一个 JSON 对象，不要 markdown 代码块：
+{"verdicts": [{"requirement_id": "r1", "verdict": "answered", "evidence": "…", "gap": "", "suggestion": "…"}],
+ "strengths": ["…"], "suggestions": ["…"], "overall": "一两句总评"}"""
+
+
+class _DraftVerdict(BaseModel):
+    requirement_id: str = ""
+    verdict: Literal["answered", "surface", "unanswered"] = "unanswered"
+    evidence: str = ""
+    gap: str = ""
+    suggestion: str = ""
+
+
+class EvaluationDraft(BaseModel):
+    """What the reviewing call is allowed to return, before it is checked."""
+
+    verdicts: list[_DraftVerdict] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    overall: str = ""
+
+
+def _answers_by_requirement(
+    turns: Sequence[InterviewTurn],
+) -> dict[str, str]:
+    collected: dict[str, list[str]] = {}
+    for turn in turns:
+        if turn.answer is not None and turn.requirement_id:
+            collected.setdefault(turn.requirement_id, []).append(turn.answer)
+    return {key: " ".join(value) for key, value in collected.items()}
+
+
+def _flat(text: str) -> str:
+    """Case, width and spacing carry nothing in a quote check.
+
+    The reviewer retypes the sentence it quoted, and a re-typed 全角括号 or an
+    extra space must not turn a real quote into an invented one.
+    """
+
+    return "".join(unicodedata.normalize("NFKC", text).lower().split())
+
+
+def _checked_verdicts(
+    draft: Sequence[_DraftVerdict],
+    requirements: Sequence[JobRequirement],
+    turns: Sequence[InterviewTurn],
+) -> tuple[list[RequirementVerdict], list[str]]:
+    """Keep the verdicts that can be checked, and fill in the ones left out.
+
+    Every requirement ends up with a verdict, including the ones the interview
+    never reached: a coverage number and a list that disagree would make both
+    wrong.
+    """
+
+    answers = _answers_by_requirement(turns)
+    index = {requirement.requirement_id: requirement for requirement in requirements}
+    notes: list[str] = []
+    checked: dict[str, RequirementVerdict] = {}
+
+    for entry in draft:
+        requirement = index.get(entry.requirement_id)
+        if requirement is None:
+            note = f"评估里出现了不存在的需求 {entry.requirement_id!r}，已丢弃"
+            if note not in notes:
+                notes.append(note)
+            continue
+
+        verdict = entry.verdict
+        evidence = " ".join(entry.evidence.split())
+        if verdict == "answered":
+            quoted = _flat(evidence)
+            if not quoted or quoted not in _flat(
+                answers.get(requirement.requirement_id, "")
+            ):
+                # A verdict nobody can point at is an opinion, not a finding.
+                verdict = "surface"
+                notes.append(
+                    f"{requirement.requirement_id} 判成 answered 但摘不出原文，已降级为 surface"
+                )
+
+        checked[requirement.requirement_id] = RequirementVerdict(
+            requirement_id=requirement.requirement_id,
+            requirement_text=requirement.text,
+            verdict=verdict,
+            evidence=evidence,
+            gap=entry.gap.strip(),
+            suggestion=entry.suggestion.strip(),
+        )
+
+    verdicts: list[RequirementVerdict] = []
+    for requirement in requirements:
+        found = checked.get(requirement.requirement_id)
+        if found is None:
+            asked = requirement.requirement_id in answers
+            found = RequirementVerdict(
+                requirement_id=requirement.requirement_id,
+                requirement_text=requirement.text,
+                verdict="unanswered",
+                gap="这条需求没有被问到" if not asked else "判定没有覆盖这条需求",
+                # The interview is over, so there is nothing left to ask; the
+                # honest next step is to read that answer back.
+                suggestion=(
+                    ""
+                    if not asked
+                    else "这段回答没有被判定，建议自己重看一遍再决定要不要补"
+                ),
+            )
+            notes.append(f"{requirement.requirement_id} 没有得到判定，按要求记为 unanswered")
+        verdicts.append(found)
+
+    return verdicts, notes
+
+
+def _as_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return []
+
+
+def evaluate(
+    job: JobInput,
+    requirements: Sequence[JobRequirement],
+    turns: Sequence[InterviewTurn],
+    client: LLMClient,
+) -> InterviewEvaluation:
+    """Judge what the answers did for each requirement.
+
+    Raises on a failed call rather than returning an empty verdict set: a review
+    that says "nothing to report" when the model was simply unreachable is
+    worse than an error the caller can retry.
+    """
+
+    user = (
+        f"岗位：{job.title} @ {job.company}\n\n"
+        f"需求列表（判定时只能用这些 requirement_id）：\n"
+        f"{_requirement_lines(requirements)}\n\n"
+        f"整场问答：\n{_transcript(turns, limit=None)}\n\n"
+        "只返回 JSON 对象。"
+    )
+    payload = client.complete_json(system=EVALUATION_PROMPT, user=user)
+    draft = EvaluationDraft.model_validate(payload)
+
+    verdicts, notes = _checked_verdicts(draft.verdicts, requirements, turns)
+    answered = sum(1 for verdict in verdicts if verdict.verdict == "answered")
+
+    return InterviewEvaluation(
+        verdicts=verdicts,
+        strengths=_as_list(draft.strengths)[:3],
+        suggestions=_as_list(draft.suggestions)[:5],
+        overall=draft.overall.strip(),
+        coverage=round(answered / len(requirements), 2) if requirements else 0.0,
+        notes=notes,
+        evaluator_version=EVALUATOR_VERSION,
     )

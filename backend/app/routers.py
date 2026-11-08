@@ -61,6 +61,7 @@ from .schemas_search import (
 )
 from .schemas_interview import (
     InterviewAnswerRequest,
+    InterviewEvaluation,
     InterviewSessionRead,
     InterviewStartRequest,
 )
@@ -68,6 +69,7 @@ from .services import (
     ConflictError,
     ConstraintRejectedError,
     InterviewFinishedError,
+    InterviewNotFinishedError,
     InterviewNotPossibleError,
     NotFoundError,
     answer_interview,
@@ -79,6 +81,7 @@ from .services import (
     create_resume,
     create_user,
     draft_resume_for_profile,
+    evaluate_interview,
     expire_stale_jobs,
     get_job,
     get_job_fit_analysis,
@@ -707,6 +710,44 @@ def read_interview_session(
     """Replay a session: the plan, every turn, and what is still uncovered."""
 
     return _or_404(lambda: read_interview(session, interview_id))
+
+
+@router.post(
+    "/interviews/{interview_id}/evaluation",
+    response_model=InterviewEvaluation,
+    responses={
+        404: {"description": "the session does not exist"},
+        409: {"description": "the interview has not finished yet"},
+        502: {"description": "the review could not be produced"},
+    },
+)
+def evaluate_interview_session(
+    interview_id: str,
+    refresh: bool = Query(default=False),
+    session: Session = Depends(_session),
+) -> InterviewEvaluation:
+    """Review a finished interview: per requirement, then what to do next.
+
+    Three verdicts instead of a score — a conversation has no number anyone can
+    recompute, and a judgement a reader can check against the quoted answer is
+    worth more than one they have to trust.
+
+    Stored on the session, so asking twice returns the same review instead of
+    buying a second opinion; ``refresh=true`` is how a caller asks for one on
+    purpose.
+
+    A review that cannot be produced is a ``502``, not an empty review: "nothing
+    to report" would read exactly like a review that found nothing wrong.
+    """
+
+    try:
+        return evaluate_interview(session, interview_id, _llm_or_503(), refresh=refresh)
+    except InterviewNotFinishedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=f"评估失败：{exc}") from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/job-fit", response_model=list[JobFitAnalysisRead])

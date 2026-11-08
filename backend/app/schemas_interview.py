@@ -19,6 +19,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 InterviewStatus = Literal["in_progress", "finished"]
+VerdictKind = Literal["answered", "surface", "unanswered"]
 
 
 class InterviewStartRequest(BaseModel):
@@ -71,3 +72,33 @@ class InterviewSessionRead(BaseModel):
     notes: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class RequirementVerdict(BaseModel):
+    """What one answer did for one requirement.
+
+    Three states instead of a score: a conversation has no reproducible number,
+    and a number nobody can recompute is worse than a judgement a reader can
+    check against the quote in ``evidence``.
+    """
+
+    requirement_id: str
+    requirement_text: str = ""
+    verdict: VerdictKind
+    evidence: str = ""
+    gap: str = ""
+    suggestion: str = ""
+
+
+class InterviewEvaluation(BaseModel):
+    """The end-of-interview review: per requirement, then what to do next."""
+
+    verdicts: list[RequirementVerdict] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    overall: str = ""
+    # answered / requirements. It is a count of the verdicts above, not a
+    # quality score, so it can be recomputed by anyone reading this object.
+    coverage: float = Field(default=0.0, ge=0, le=1)
+    notes: list[str] = Field(default_factory=list)
+    evaluator_version: str = ""

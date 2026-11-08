@@ -16,7 +16,12 @@ from .filters import (
     hard_filter,
     location_tokens,
 )
-from .interview_agent import answered_ids, decide, plan_interview
+from .interview_agent import (
+    answered_ids,
+    decide,
+    evaluate as review_answers,
+    plan_interview,
+)
 from .jd_extract import requirements_for
 from .job_hunter import JobHunterAgent, dedupe_key
 from .job_probe import JobProber
@@ -80,6 +85,7 @@ from .resume_draft import (
 )
 from .schemas_interview import (
     InterviewAnswerRequest,
+    InterviewEvaluation,
     InterviewPlan,
     InterviewSessionRead,
     InterviewStartRequest,
@@ -110,6 +116,10 @@ class InterviewNotPossibleError(ValueError):
 
 class InterviewFinishedError(ValueError):
     """The session is over, or has no question waiting for an answer."""
+
+
+class InterviewNotFinishedError(ValueError):
+    """There is no complete conversation to review yet."""
 
 
 def _id() -> str:
@@ -1070,6 +1080,53 @@ def answer_interview(
 
 def read_interview(session: Session, interview_id: str) -> InterviewSessionRead:
     return _interview_read(_load_interview(session, interview_id))
+
+
+def _evaluation_read(record: InterviewSession) -> InterviewEvaluation:
+    return InterviewEvaluation.model_validate(record.evaluation or {})
+
+
+def evaluate_interview(
+    session: Session,
+    interview_id: str,
+    client: LLMClient,
+    *,
+    refresh: bool = False,
+) -> InterviewEvaluation:
+    """Review a finished interview, once.
+
+    Stored rather than recomputed by default: the same conversation judged twice
+    would drift, and a review someone has already read should not change under
+    them. ``refresh`` is the explicit way to ask for a second opinion.
+
+    A failed review raises instead of storing an empty one — "nothing to report"
+    would be indistinguishable from a review that found nothing wrong.
+    """
+
+    record = _load_interview(session, interview_id)
+    if record.status != "finished":
+        raise InterviewNotFinishedError("面试还没结束，先答完再评估")
+    if record.evaluation and not refresh:
+        return _evaluation_read(record)
+
+    job = get_job(session, record.job_id)
+    profile = get_profile(session, record.user_profile_id)
+    expectations = UserRequirements.model_validate(profile.requirements)
+    requirements = [
+        JobRequirement.model_validate(item) for item in record.requirements
+    ]
+    turns = [InterviewTurn.model_validate(turn) for turn in record.turns]
+
+    evaluation = review_answers(
+        _job_input(job, expectations.employment_type),
+        requirements,
+        turns,
+        client,
+    )
+    record.evaluation = evaluation.model_dump()
+    session.commit()
+    session.refresh(record)
+    return evaluation
 
 
 def create_job_fit_analysis(

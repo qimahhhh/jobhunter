@@ -47,6 +47,9 @@ _ADDED_MATCH_COLUMNS = (
     ("score_source", "VARCHAR(16) DEFAULT 'heuristic'"),
 )
 
+# Columns ``interview_sessions`` grew once a finished run could be reviewed.
+_ADDED_INTERVIEW_COLUMNS = (("evaluation", "JSON DEFAULT '{}'"),)
+
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ai_job_hunter.db")
 engine_kwargs: dict[str, object] = {"future": True}
@@ -167,6 +170,21 @@ def _migrate_job_matches(inspector: Any) -> None:
             )
 
 
+def _migrate_interview_sessions(inspector: Any) -> None:
+    """Add the review column to a session table created before it existed."""
+
+    columns = _columns(inspector, "interview_sessions")
+    for name, definition in _ADDED_INTERVIEW_COLUMNS:
+        if name in columns:
+            continue
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"ALTER TABLE interview_sessions ADD COLUMN {name} {definition}"
+                )
+            )
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
     inspector = inspect(engine)
@@ -177,6 +195,8 @@ def init_db() -> None:
         _migrate_user_profiles(inspector)
     if "job_matches" in tables:
         _migrate_job_matches(inspector)
+    if "interview_sessions" in tables:
+        _migrate_interview_sessions(inspector)
 
 
 def get_session() -> Iterator[Session]:

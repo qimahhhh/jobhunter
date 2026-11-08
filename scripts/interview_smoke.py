@@ -40,6 +40,7 @@ from backend.app.llm import DeepSeekClient, LLMClient, LLMError  # noqa: E402
 from backend.app.models import Base  # noqa: E402
 from backend.app.schemas_interview import (  # noqa: E402
     InterviewAnswerRequest,
+    InterviewEvaluation,
     InterviewSessionRead,
     InterviewStartRequest,
 )
@@ -62,6 +63,7 @@ from backend.app.services import (  # noqa: E402
     create_job_match,
     create_profile,
     create_user,
+    evaluate_interview,
     start_interview_session,
 )
 
@@ -239,7 +241,7 @@ def _run_interview(
     max_turns: int,
     interactive: bool,
     requirement_texts: dict[str, str],
-) -> None:
+) -> InterviewSessionRead:
     state = start_interview_session(
         session,
         InterviewStartRequest(
@@ -287,14 +289,50 @@ def _run_interview(
         text = requirement_texts.get(requirement_id, "")
         if text:
             print(f"  - {requirement_id}  {text}")
+    return state
+
+
+def _print_evaluation(evaluation: InterviewEvaluation) -> None:
+    """The review: one line per requirement, each with the quote it rests on."""
+
+    answered = sum(1 for verdict in evaluation.verdicts if verdict.verdict == "answered")
+    _line()
+    print(
+        f"面试复盘：{answered}/{len(evaluation.verdicts)} 条答到核心"
+        f"（覆盖率 {evaluation.coverage:.0%}）"
+    )
+    for verdict in evaluation.verdicts:
+        print(f"  [{verdict.verdict}] {verdict.requirement_id}  {verdict.requirement_text}")
+        if verdict.evidence:
+            print(f"    原句：{verdict.evidence}")
+        if verdict.gap:
+            print(f"    差在：{verdict.gap}")
+        if verdict.suggestion:
+            print(f"    建议：{verdict.suggestion}")
+    for title, items in (
+        ("优势", evaluation.strengths),
+        ("改进建议", evaluation.suggestions),
+    ):
+        if not items:
+            continue
+        print(f"\n{title}：")
+        for item in items:
+            print(f"  - {item}")
+    if evaluation.overall:
+        print(f"\n总评：{evaluation.overall}")
+    _print_notes(evaluation.notes)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile-id", help="已存画像 id；与 --job-id 一起使用时读真实数据库")
     parser.add_argument("--job-id", help="已存岗位 id；与 --profile-id 一起使用时读真实数据库")
-    parser.add_argument("--answers", type=int, default=3, help="自动回答几轮（默认 3）")
-    parser.add_argument("--max-turns", type=int, default=6, help="轮次上限（默认 6）")
+    parser.add_argument(
+        "--answers", type=int, default=4, help="自动回答几轮（默认 4）"
+    )
+    parser.add_argument(
+        "--max-turns", type=int, default=4, help="轮次上限（默认 4，默认值会跑完并给复盘）"
+    )
     parser.add_argument(
         "--interactive", action="store_true", help="手动输入回答，而不是用脚本里的样例"
     )
@@ -332,7 +370,7 @@ def main() -> int:
         match_report = JobMatchRead.model_validate(match)
         _print_match(match_report)
 
-        _run_interview(
+        state = _run_interview(
             session,
             profile_id,
             job_id,
@@ -344,6 +382,18 @@ def main() -> int:
                 row.requirement_id: row.text for row in match_report.breakdown
             },
         )
+        if state.status == "finished":
+            try:
+                _print_evaluation(evaluate_interview(session, state.id, client))
+            except LLMError as exc:
+                # The review is a separate step: failing it says nothing about
+                # the interview that just finished.
+                print(f"\n复盘生成失败：{exc}")
+        else:
+            print(
+                "\n面试未结束，没有复盘可看。"
+                "想看完整反馈：--max-turns N --answers N（例如 --max-turns 4 --answers 4）"
+            )
     except ConstraintRejectedError as exc:
         print("岗位没有通过画像的硬约束：" + "；".join(exc.outcome.rejections))
         return 2

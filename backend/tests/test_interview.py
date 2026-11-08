@@ -18,10 +18,12 @@ from backend.app.schemas_resources import (
 )
 from backend.app.services import (
     InterviewFinishedError,
+    InterviewNotFinishedError,
     answer_interview,
     create_job,
     create_profile,
     create_user,
+    evaluate_interview,
     read_interview,
     start_interview_session,
 )
@@ -265,6 +267,189 @@ class InterviewTest(unittest.TestCase):
 
         with self.assertRaises(InterviewFinishedError):
             self._answer(session.id, client)
+
+
+class InterviewEvaluationTest(unittest.TestCase):
+    """The review that comes after the conversation."""
+
+    def setUp(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        self.session = sessionmaker(
+            bind=engine, autoflush=False, expire_on_commit=False
+        )()
+
+        user = create_user(
+            self.session,
+            UserCreate(email="review@example.com", display_name="Candidate"),
+        )
+        self.profile = create_profile(
+            self.session,
+            ProfileCreate(
+                user_id=user.id,
+                requirements=UserRequirements(desired_role="后端开发实习生"),
+                capabilities=CapabilityProfile(
+                    summary="计算机专业学生，熟悉后端开发",
+                    skills=["Python"],
+                    experiences=["用 Python 写过一个爬虫"],
+                ),
+            ),
+        )
+        self.job = create_job(
+            self.session,
+            JobCreate(
+                title="后端开发实习生",
+                company="示例科技",
+                description="负责服务端接口开发",
+                requirements="熟悉 Python；熟悉 Go",
+                employment_type="internship",
+                source_name="manual",
+            ),
+        )
+        requirements_for(
+            self.session,
+            self.job.requirements,
+            self.job.description,
+            _FakeClient([REQUIREMENTS]),
+        )
+
+    def tearDown(self) -> None:
+        self.session.close()
+
+    def _finished(self, replies: list[dict[str, Any]]):
+        client = _FakeClient(
+            [
+                _plan(
+                    {"requirement_id": "r1", "question": "讲讲那个爬虫", "why": "必备技能"}
+                ),
+                {"action": "finish", "reason": "时间到了"},
+                *replies,
+            ]
+        )
+        session = start_interview_session(
+            self.session,
+            InterviewStartRequest(
+                profile_id=self.profile.id, job_id=self.job.id, max_turns=4
+            ),
+            client,
+        )
+        session = answer_interview(
+            self.session,
+            session.id,
+            InterviewAnswerRequest(answer="做过一个接口"),
+            client,
+        )
+        self.assertEqual(session.status, "finished")
+        return session, client
+
+    def test_every_requirement_gets_a_verdict_including_the_unasked(self) -> None:
+        session, client = self._finished(
+            [
+                {
+                    "verdicts": [
+                        {
+                            "requirement_id": "r1",
+                            "verdict": "answered",
+                            "evidence": "做过一个接口",
+                            "gap": "",
+                            "suggestion": "",
+                        }
+                    ],
+                    "strengths": ["能讲出具体做法"],
+                    "suggestions": ["补一下并发处理"],
+                    "overall": "基础扎实，深度不足",
+                }
+            ]
+        )
+
+        evaluation = evaluate_interview(self.session, session.id, client)
+
+        # A coverage number and a verdict list that disagree would make both
+        # wrong, so the requirement nobody asked about still appears.
+        self.assertEqual([v.requirement_id for v in evaluation.verdicts], ["r1", "r2"])
+        self.assertEqual(evaluation.verdicts[0].verdict, "answered")
+        self.assertEqual(evaluation.verdicts[0].requirement_text, "熟悉 Python")
+        self.assertEqual(evaluation.verdicts[1].verdict, "unanswered")
+        self.assertEqual(evaluation.verdicts[1].gap, "这条需求没有被问到")
+        self.assertEqual(evaluation.coverage, 0.5)
+        self.assertEqual(evaluation.suggestions, ["补一下并发处理"])
+
+    def test_a_verdict_on_an_invented_requirement_is_dropped(self) -> None:
+        session, client = self._finished(
+            [
+                {
+                    "verdicts": [
+                        {
+                            "requirement_id": "r99",
+                            "verdict": "answered",
+                            "evidence": "做过一个接口",
+                        }
+                    ],
+                    "overall": "" ,
+                }
+            ]
+        )
+
+        evaluation = evaluate_interview(self.session, session.id, client)
+
+        self.assertEqual([v.requirement_id for v in evaluation.verdicts], ["r1", "r2"])
+        self.assertTrue(any("r99" in note for note in evaluation.notes))
+        self.assertEqual(evaluation.coverage, 0.0)
+
+    def test_an_answer_verdict_without_a_quote_is_downgraded(self) -> None:
+        session, client = self._finished(
+            [
+                {
+                    "verdicts": [
+                        {
+                            "requirement_id": "r1",
+                            "verdict": "answered",
+                            "evidence": "他说自己重构了整个系统",
+                        }
+                    ],
+                    "overall": "",
+                }
+            ]
+        )
+
+        evaluation = evaluate_interview(self.session, session.id, client)
+
+        # The quote is checked against the transcript: a verdict nobody can
+        # point at is the reviewer's impression, not a finding.
+        self.assertEqual(evaluation.verdicts[0].verdict, "surface")
+        self.assertTrue(any("降级" in note for note in evaluation.notes))
+        self.assertEqual(evaluation.coverage, 0.0)
+
+    def test_the_review_is_stored_and_only_refresh_asks_again(self) -> None:
+        review = {"verdicts": [], "strengths": [], "suggestions": [], "overall": "一般"}
+        session, client = self._finished([review, review])
+
+        first = evaluate_interview(self.session, session.id, client)
+        calls = len(client.calls)
+        second = evaluate_interview(self.session, session.id, client)
+
+        self.assertEqual(len(client.calls), calls)
+        self.assertEqual(second.overall, first.overall)
+
+        # A user who already read a review should not get a different one the
+        # next time they look, so asking again is explicit.
+        evaluate_interview(self.session, session.id, client, refresh=True)
+        self.assertEqual(len(client.calls), calls + 1)
+
+    def test_reviewing_an_unfinished_interview_is_refused(self) -> None:
+        client = _FakeClient(
+            [_plan({"requirement_id": "r1", "question": "讲讲那个爬虫", "why": "必备技能"})]
+        )
+        session = start_interview_session(
+            self.session,
+            InterviewStartRequest(
+                profile_id=self.profile.id, job_id=self.job.id, max_turns=4
+            ),
+            client,
+        )
+
+        with self.assertRaises(InterviewNotFinishedError):
+            evaluate_interview(self.session, session.id, client)
 
 
 if __name__ == "__main__":

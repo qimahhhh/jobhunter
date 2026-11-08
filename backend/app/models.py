@@ -206,6 +206,10 @@ class InterviewSession(Base):
     turns: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     finish_reason: Mapped[str] = mapped_column(Text, default="")
     notes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # The review, once someone asks for it. Stored rather than recomputed: the
+    # same conversation should not be judged differently on a second visit, and
+    # a stored review is what makes the suggestions reviewable later.
+    evaluation: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
