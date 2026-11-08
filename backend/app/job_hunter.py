@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import datetime
 
 from .agents import readable_terms, term_set
 from .filters import hard_filter, location_tokens
-from .models import Job
+from .models import Job, as_utc
 from .schemas_resources import UserRequirements
 from .schemas_search import (
     JobCandidate,
@@ -109,18 +109,12 @@ def _requirements(query: JobQuery) -> UserRequirements:
 def _epoch(value: datetime | None) -> float:
     """Seconds since the epoch, reading a stored naive value as UTC.
 
-    SQLite drops the offset, so a timestamp that round-tripped through the
-    database comes back naive while a just-written one is still aware. Both are
-    the same instant, so normalising here is what keeps "newest first" honest:
-    converting the two directly either raises, or silently reads the stored UTC
-    wall time as local time and shifts every row by the offset.
+    SQLite keeps no offset, so a timestamp that round-tripped through the
+    database comes back naive while a just-written one is still aware. Both
+    describe the same instant, and ``as_utc`` is the one place that says so.
     """
 
-    if value is None:
-        return 0.0
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.timestamp()
+    return 0.0 if value is None else as_utc(value).timestamp()
 
 
 def _sort_key(candidate: JobCandidate) -> tuple[float, float]:

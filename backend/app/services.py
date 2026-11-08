@@ -16,6 +16,7 @@ from .filters import (
     location_tokens,
 )
 from .job_hunter import JobHunterAgent, dedupe_key
+from .job_probe import JobProber
 from .job_sources import JobSource, OfferCampusSource, notices_to_jobs
 from .llm import LLMClient
 from .models import (
@@ -25,6 +26,7 @@ from .models import (
     Resume,
     User,
     UserProfile,
+    as_utc,
     utc_now,
 )
 from .schemas import (
@@ -41,7 +43,12 @@ from .schemas import (
 )
 from .schemas_resources import (
     JobCreate,
+    JobExpiryRequest,
+    JobExpiryResponse,
     JobMatchCreate,
+    JobProbeRequest,
+    JobProbeResponse,
+    JobProbeResult,
     JobRead,
     JobVerificationRejection,
     JobVerificationRequest,
@@ -425,6 +432,102 @@ def verify_jobs(
         updated=[JobRead.model_validate(job) for job in updated],
         rejected=rejected,
     )
+
+
+def probe_jobs(
+    session: Session,
+    data: JobProbeRequest,
+    prober: JobProber | None = None,
+) -> JobProbeResponse:
+    """Check stored postings against the pages they came from.
+
+    The machine may only ever downgrade. A 404 or a ``已截止`` marker is
+    evidence the posting is closed; a 200 is not evidence that anyone is still
+    hiring, so an alive result records that the check happened and changes
+    nothing else. An unreachable source only downgrades postings a human has not
+    already spoken for, because a site refusing a bot says nothing about the
+    job, and a transient timeout must not overwrite a verdict.
+    """
+
+    checker = prober or JobProber(timeout=data.timeout_seconds)
+    checked_at = utc_now()
+    jobs = list_jobs(session, verification_status=data.status)[: data.limit]
+
+    results: list[JobProbeResult] = []
+    expired: list[str] = []
+    unavailable: list[str] = []
+    alive = 0
+
+    for job in jobs:
+        outcome = checker.probe(job.id, job.source_url)
+        job.last_checked_at = checked_at
+
+        if outcome.verdict == "gone":
+            job.verification_status = "expired"
+            expired.append(job.id)
+        elif outcome.verdict == "unreachable" and job.verification_status != "active":
+            job.verification_status = "source_unavailable"
+            unavailable.append(job.id)
+        elif outcome.verdict == "alive":
+            alive += 1
+
+        results.append(
+            JobProbeResult(
+                job_id=job.id,
+                title=job.title,
+                verdict=outcome.verdict,
+                detail=outcome.detail,
+            )
+        )
+
+    session.commit()
+    return JobProbeResponse(
+        checked=len(jobs),
+        alive=alive,
+        results=results,
+        expired=expired,
+        unavailable=unavailable,
+    )
+
+
+def expire_stale_jobs(
+    session: Session, data: JobExpiryRequest
+) -> JobExpiryResponse:
+    """Mark postings nobody has seen for a while, without deleting them.
+
+    Age is read from the last moment there was evidence the posting exists:
+    collected (``last_seen_at``, falling back to ``collected_at``) or confirmed
+    by a person (``last_verified_at``). Taking the latest of the three is what
+    stops a collection that simply did not run for a fortnight from expiring a
+    posting someone checked yesterday.
+
+    Marked rather than removed: a posting that comes back is picked up by the
+    collector again, and a decision that leaves no row behind cannot be
+    explained to anyone.
+
+    The comparison happens in Python on purpose. SQLite stores no offset, so a
+    cutoff bound into SQL would be compared against a differently shaped string,
+    and the same query would behave differently on PostgreSQL.
+    """
+
+    now = utc_now()
+    threshold = data.max_age_days * 86400
+    expired: list[str] = []
+
+    for job in session.query(Job).filter(Job.verification_status != "expired").all():
+        stamps = [
+            as_utc(value)
+            for value in (job.last_seen_at, job.collected_at, job.last_verified_at)
+            if value is not None
+        ]
+        if not stamps:
+            continue
+        if (now - max(stamps)).total_seconds() > threshold:
+            job.verification_status = "expired"
+            expired.append(job.id)
+
+    session.commit()
+    return JobExpiryResponse(expired=expired, max_age_days=data.max_age_days)
 
 
 def _query_with_profile_defaults(

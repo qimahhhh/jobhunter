@@ -22,6 +22,7 @@ _ADDED_JOB_COLUMNS = (
     ("employment_type", "VARCHAR(32)"),
     ("dedupe_key", "VARCHAR(512)"),
     ("last_seen_at", "DATETIME"),
+    ("last_checked_at", "DATETIME"),
 )
 
 # Columns a stored profile grew after the first schema. ``ALTER TABLE`` in

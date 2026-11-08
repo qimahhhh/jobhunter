@@ -38,6 +38,8 @@ python -m venv .venv
 | `POST /api/v1/resumes/draft` | 用已存画像（外加画像关联的原简历 chunks）生成**基础简历**草稿，不涉及 JD；每条要点带 `sources` 引用，找不到原文依据的要点会被删除，数字对不上原文会进 `notes`。 |
 | `POST /api/v1/jobs`、`GET /api/v1/jobs`、`GET /api/v1/jobs/{job_id}` | 创建和查询岗位；列表支持 `employment_type`、`verification_status` 筛选。手动录入不去重：同一公司同名岗位可以是两个真实岗位。 |
 | `POST /api/v1/jobs/verify` | 批量记录人工核验结论（`active` / `expired` / `source_unavailable` / `pending_verification`）。只有人工给出结论时才会写 `last_verified_at`，改回 `pending_verification` 会同时清掉这个时间；整批一次提交，不存在的 id 进 `rejected` 而不影响其余。 |
+| `POST /api/v1/jobs/probe` | 探活来源链接：`404`/`410` 或页面出现「已截止」等标记 → 置 `expired`；页面能打开 → 只刷新 `last_checked_at`，**不**改状态；请求失败 → 在非人工确认过的岗位上置 `source_unavailable`。默认只检查 `pending_verification`，支持 `status` / `limit` / `timeout_seconds`。 |
+| `POST /api/v1/jobs/expire-stale` | 把超过 `max_age_days`（默认 14）没有任何证据（既没被采集到、也没被人工核验）的岗位标为 `expired`，不删除；来源重新发布时采集会把它们退回待核验。 |
 | `POST /api/v1/jobs/ingest` | 采集器批量写入岗位，按 `公司 + 岗位名 + 城市` 去重：重复出现的岗位视为同一条，刷新薪资/地点/描述这些会变的字段并把 `last_seen_at` 更新为当前时间，首次来源保留为溯源。返回 `created` / `updated` 的 id 列表。 |
 | `POST /api/v1/jobs/collect` | 从 Offer先生校招数据开放平台拉取最新公告并入库：归一化后走 `/jobs/ingest` 同一条幂等合并路径，返回 `source` / `fetched` / `created` / `updated` 和跳过原因。未配置 API Key 返回 `503`，来源不可用返回 `502`。 |
 | `POST /api/v1/job-search` | Job Hunter Agent：在已入库岗位中检索并排序，返回 `candidates`（score、命中/缺失关键词、理由）和 `excluded`（被过滤的岗位及原因）。传 `profile_id` 时用画像的目标岗位、技能、城市、薪资下限补全查询，岗位类型**仅在画像里显式确认过**时才作为过滤条件；显式传入的字段优先。 |
@@ -56,12 +58,18 @@ python -m venv .venv
 
 **核验状态真的参与判断**：`verification_status` 不只是个字段——Agent 会把 `expired` 的岗位从候选里剔除并写明原因；未核验 / 来源不可达的岗位仍然返回，但带 `warnings`（“检索到不等于仍在招聘”）；`verified_only=true` 时只检索 `active`。`last_verified_at` 只在人工给出结论时写入，所以一个 `active` 岗位一定对应一次具体的核验时刻。
 
+**机器只能证伪**：`job_probe.py` 探活只做一件事——证明岗位已关闭。`404/410` 或页面出现「已截止」→ `expired`；页面能打开**不**代表还在招，所以只刷新 `last_checked_at`。探活请求失败（403/超时）也不推翻人工结论：已标 `active` 的岗位保持 `active`，未确认的才降为 `source_unavailable`。`last_checked_at`（机器检查）与 `last_verified_at`（人工核验）分两个字段，就是为了不让“看过页面”冒充“确认在招”。
+
+**自动过期看的是“最后一次有证据”**：`/jobs/expire-stale` 取 `last_seen_at`、`collected_at`、`last_verified_at` 三者中最晚的一个，超过 N 天才标 `expired`。用最晚值而不是只看采集时间，是因为采集停跑两周不应该把昨天刚被人核验过的岗位一起判死。
+
 **采集与核验的命令行**：
 
 ```powershell
 .\.venv\Scripts\python scripts\job_data.py collect --limit 40   # 拉一批真实岗位并入库
 .\.venv\Scripts\python scripts\job_data.py pending              # 打印待核验清单（含公告链接）
+.\.venv\Scripts\python scripts\job_data.py check --limit 10       # 探活链接，关闭的自动标 expired
 .\.venv\Scripts\python scripts\job_data.py verify --ids <从上一步复制的前缀> --status active
+.\.venv\Scripts\python scripts\job_data.py expire --days 14       # 长期没被采集到的标过期
 ```
 
 `verify` 支持唯一 id 前缀，因为 `pending` 只打印前 12 位；前缀歧义会报错而不是猜一个。采集由人触发，不跑定时任务；来源 license 限制下公告正文不入库。

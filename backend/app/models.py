@@ -11,6 +11,18 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def as_utc(value: datetime) -> datetime:
+    """A stored timestamp read as UTC.
+
+    SQLite keeps no offset, so a value that round-tripped through the database
+    comes back naive while a freshly written one is still aware. Both mean the
+    same instant; normalising where they are compared keeps that true without a
+    custom column type, and keeps one definition of the rule.
+    """
+
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -95,6 +107,12 @@ class Job(Base):
         DateTime(timezone=True), nullable=True
     )
     last_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # When the source page was last checked by a machine. Separate from
+    # ``last_verified_at`` on purpose: a 200 says the page exists, not that the
+    # posting is open, so the two can never share a field.
+    last_checked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

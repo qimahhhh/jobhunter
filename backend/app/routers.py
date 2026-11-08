@@ -46,6 +46,10 @@ from .schemas_resources import (
     UserRead,
     JobVerificationRequest,
     JobVerificationResponse,
+    JobProbeRequest,
+    JobProbeResponse,
+    JobExpiryRequest,
+    JobExpiryResponse,
 )
 from .schemas_search import (
     JobCollectRequest,
@@ -67,6 +71,7 @@ from .services import (
     create_resume,
     create_user,
     draft_resume_for_profile,
+    expire_stale_jobs,
     get_job,
     get_job_fit_analysis,
     get_job_match,
@@ -76,6 +81,7 @@ from .services import (
     ingest_jobs,
     list_job_fit_analyses,
     list_jobs,
+    probe_jobs,
     search_jobs,
     verify_jobs,
 )
@@ -493,6 +499,35 @@ def verify_job_statuses(
     """
 
     return verify_jobs(session, data)
+
+
+@router.post("/jobs/probe", response_model=JobProbeResponse)
+def probe_job_sources(
+    data: JobProbeRequest, session: Session = Depends(_session)
+) -> JobProbeResponse:
+    """Check stored postings against the pages they were collected from.
+
+    The machine can only downgrade: a 404 or an 已截止 marker closes a posting,
+    while a page that still loads proves nothing about hiring and therefore
+    changes no status. Every check records ``last_checked_at``, which is kept
+    separate from ``last_verified_at`` so "a machine looked" and "a person
+    confirmed" never get confused.
+    """
+
+    return probe_jobs(session, data)
+
+
+@router.post("/jobs/expire-stale", response_model=JobExpiryResponse)
+def expire_stale_postings(
+    data: JobExpiryRequest, session: Session = Depends(_session)
+) -> JobExpiryResponse:
+    """Stop recommending postings no collection has returned for a while.
+
+    Marked expired rather than deleted, and reversible: if the source publishes
+    the posting again the collector puts it back to pending for a fresh look.
+    """
+
+    return expire_stale_jobs(session, data)
 
 
 @router.post("/job-search", response_model=JobSearchResponse)

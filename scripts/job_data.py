@@ -1,16 +1,21 @@
-r"""Collect, review and verify real postings from the terminal.
+r"""Collect, review, check and verify real postings from the terminal.
 
     .\.venv\Scripts\python scripts\job_data.py collect --limit 40
     .\.venv\Scripts\python scripts\job_data.py pending
+    .\.venv\Scripts\python scripts\job_data.py check --limit 10
     .\.venv\Scripts\python scripts\job_data.py verify --ids <pending 里复制的前缀> --status active
+    .\.venv\Scripts\python scripts\job_data.py expire --days 14
 
 The collect step is user-triggered on purpose: the source's licence covers
 personal study and forbids bulk storage, so this pulls one batch, keeps the
 short facts plus a link back to each announcement, and never the notice body.
 
-The verify step is where "found a job" stops being "still hiring". Only a human
-verdict moves a posting to ``active``, and the moment of that look is stored
-with it. Ids may be given as unique prefixes of what ``pending`` printed.
+The check step walks those links. It can only close a posting (404, or a page
+that says 已截止); a page that still loads proves nothing about hiring, so it
+never marks anything active. The verify step is the human verdict, and expire
+is the fallback for postings nobody has collected for a while.
+
+Ids may be given as unique prefixes of what ``pending`` printed.
 """
 
 from __future__ import annotations
@@ -30,11 +35,19 @@ from backend.app.job_sources import (  # noqa: E402
 )
 from backend.app.models import Job  # noqa: E402
 from backend.app.schemas_resources import (  # noqa: E402
+    JobExpiryRequest,
+    JobProbeRequest,
     JobVerificationDecision,
     JobVerificationRequest,
 )
 from backend.app.schemas_search import JobCollectRequest  # noqa: E402
-from backend.app.services import collect_jobs, list_jobs, verify_jobs  # noqa: E402
+from backend.app.services import (  # noqa: E402
+    collect_jobs,
+    expire_stale_jobs,
+    list_jobs,
+    probe_jobs,
+    verify_jobs,
+)
 
 STATUSES = ["active", "expired", "source_unavailable", "pending_verification"]
 
@@ -102,6 +115,46 @@ def _resolve(session, token: str) -> tuple[str | None, str | None]:
     return None, f"{token}：前缀不唯一，请输入更长的 id"
 
 
+def _check(args: argparse.Namespace) -> int:
+    session = SessionLocal()
+    try:
+        result = probe_jobs(
+            session,
+            JobProbeRequest(
+                status=args.status,
+                limit=args.limit,
+                timeout_seconds=args.timeout,
+            ),
+        )
+        print(
+            f"检查 {result.checked} 条：可访问 {result.alive}  "
+            f"关闭 {len(result.expired)}  不可达 {len(result.unavailable)}"
+        )
+        for item in result.results:
+            print(f"  {item.verdict:<12} {item.job_id[:12]}  {item.title[:26]}")
+            print(f"               {item.detail}")
+    finally:
+        session.close()
+    return 0
+
+
+def _expire(args: argparse.Namespace) -> int:
+    session = SessionLocal()
+    try:
+        result = expire_stale_jobs(
+            session, JobExpiryRequest(max_age_days=args.days)
+        )
+        print(
+            f"超过 {result.max_age_days} 天未被采集到："
+            f"{len(result.expired)} 条已标记过期"
+        )
+        for job_id in result.expired:
+            print(f"  {job_id[:12]}")
+    finally:
+        session.close()
+    return 0
+
+
 def _verify(args: argparse.Namespace) -> int:
     session = SessionLocal()
     try:
@@ -145,6 +198,16 @@ def main() -> int:
     verify_parser.add_argument("--ids", required=True, help="逗号分隔的 id 或唯一前缀")
     verify_parser.add_argument("--status", required=True, choices=STATUSES)
     verify_parser.set_defaults(handler=_verify)
+
+    check_parser = subparsers.add_parser("check", help="探活来源链接（只能判定关闭）")
+    check_parser.add_argument("--status", default="pending_verification", choices=STATUSES)
+    check_parser.add_argument("--limit", type=int, default=10)
+    check_parser.add_argument("--timeout", type=float, default=5.0)
+    check_parser.set_defaults(handler=_check)
+
+    expire_parser = subparsers.add_parser("expire", help="标记长期未被采集到的岗位")
+    expire_parser.add_argument("--days", type=int, default=14)
+    expire_parser.set_defaults(handler=_expire)
 
     args = parser.parse_args()
     init_db()
